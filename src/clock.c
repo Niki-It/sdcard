@@ -5,6 +5,7 @@
 #include "stm32f4xx_ll_system.h"
 #include "stm32f4xx_ll_pwr.h"
 #include "stm32f4xx_ll_utils.h"
+#include "led_controller/led_controller.h"
 
 void Clock_Init(void)
 {        
@@ -49,11 +50,14 @@ void Clock_Init(void)
     LL_SetSystemCoreClock(168000000);
 
     // Включаем тактирование
-    LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOA); // Для MUX1
+    LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOA); // Для MUX1, USART2, UART4 , usb
     LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOB); // Для Soft I2C
     LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOC); // Для RESET кодека, MCLK, MUX2 и DATx_SD + CLK_SD
     LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOD); // Для CMD_SD
     LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_SPI2);  // Для I2S
     LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_OTGFS); // Для USB
     LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_SDIO);  // Для SDIO
+
+    // включаем тактирование для UART4 и USART2
+    led_controller_clock_init();
 }

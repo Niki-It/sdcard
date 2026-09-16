@@ -11,8 +11,61 @@
 #include "tusb.h"
 #include "sdio.h"
 #include "SEGGER_RTT.h"
+#include "led_controller/led_controller.h"
 
-int main(void) {
+void periph_init(void);
+
+Leds leds = {
+    .VD1 = 0,
+    .VD2 = 0,
+    .VD3 = 0,
+    .VD4 = 0,
+    .VD5 = 0,
+    .VD6 = 0,
+    .VD7 = 0,
+    .VD8 = 0,
+    .VD9 = 1
+};
+
+Leds leds2 = {
+    .VD1 = 0,
+    .VD2 = 0,
+    .VD3 = 0,
+    .VD4 = 0,
+    .VD5 = 0,
+    .VD6 = 0,
+    .VD7 = 0,
+    .VD8 = 0,
+    .VD9 = 0
+};
+
+int main(void) 
+{
+    periph_init();
+
+    // SDIO_TestCard();
+    // SDIO_RunBenchmark();
+    tusb_init();
+
+    while (1) 
+    {
+        SetLedStateCommand cmd = create_set_led_state(leds, frame_number);
+        send_sync(USART2, cmd.data, 3);
+        LL_mDelay(30);
+        
+        SetLedStateCommand cmd2 = create_set_led_state(leds2, frame_number);
+        send_sync(USART2, cmd.data, 3);
+
+        LL_mDelay(30);
+        //tud_task();
+    }
+}
+
+void periph_init()
+{
+    // Применение настроек тактирования из регистров
+    SystemCoreClockUpdate();
+
     // Инициализация RTT (SEGGER RTT)
     SEGGER_RTT_Init();
 
@@ -26,10 +79,7 @@ int main(void) {
     // Инициализация задержек
     LL_Init1msTick(SystemCoreClock);
 
-    SDIO_TestCard();
-
-    SDIO_RunBenchmark();
-    
+    led_controller_usart_init();
     // // Инициализация модулей
     // soft_i2c_init();
     // aic3104_init();
@@ -40,10 +90,5 @@ int main(void) {
 
     // aic3104_init_clocking();
     // aic3104_init_analog_bypass();
-
-    tusb_init();
-
-    while (1) {
-        tud_task();
-    }
 }
+

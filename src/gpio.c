@@ -5,6 +5,7 @@
 #include "soft_i2c.h"
 #include "aic3104.h"
 #include "mux.h"
+#include "led_controller/led_controller.h"
 
 void GPIO_Init(void)
 {
@@ -105,4 +106,6 @@ void GPIO_Init(void)
     // gpio_sdio_d.Pull       = LL_GPIO_PULL_UP;              // Подтяжка уже выполнена аппаратно
     gpio_sdio_d.Alternate  = LL_GPIO_AF_12;                // AF12 для SDIO в STM32F4
     LL_GPIO_Init(GPIOD, &gpio_sdio_d);
+
+    led_controller_gpio_init();
 }

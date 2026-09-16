@@ -12,12 +12,7 @@ project(${PROJECT_NAME} C ASM)
 include(cmake/stm32.cmake)
 
 # Сбор исходников
-file(GLOB_RECURSE SOURCES 
-    "app/*.c"
-    "core/*.c"      
-    "drivers/*.c"
-    "src/*.c"
-)
+include(${CMAKE_SOURCE_DIR}/sources.cmake)
 
 # Создание исполняемого файла
 add_executable(${PROJECT_NAME}.elf

@@ -16,14 +16,14 @@
 void periph_init(void);
 
 Leds leds = {
-    .VD1 = 0,
-    .VD2 = 0,
-    .VD3 = 0,
-    .VD4 = 0,
-    .VD5 = 0,
-    .VD6 = 0,
-    .VD7 = 0,
-    .VD8 = 0,
+    .VD1 = 1,
+    .VD2 = 1,
+    .VD3 = 1,
+    .VD4 = 1,
+    .VD5 = 1,
+    .VD6 = 1,
+    .VD7 = 1,
+    .VD8 = 1,
     .VD9 = 1
 };
 
@@ -50,11 +50,12 @@ int main(void)
     while (1) 
     {
         SetLedStateCommand cmd = create_set_led_state(leds, frame_number);
-        send_sync(USART2, cmd.data, 3);
+        send_command(USART2, cmd);
         LL_mDelay(30);
         
         SetLedStateCommand cmd2 = create_set_led_state(leds2, frame_number);
-        send_sync(USART2, cmd.data, 3);
+        send_command(USART2, cmd2);
+
 
         LL_mDelay(30);
         //tud_task();

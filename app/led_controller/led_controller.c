@@ -18,8 +18,8 @@ volatile bool is_transmit_active = false;
 volatile uint16_t tx_index = 0;   
 volatile uint16_t tx_total = 0;  
 
-uint8_t frame_number = 0;
-void inc_frame_number();
+volatile uint8_t frame_number = 0;
+static void inc_frame_number();
 
 RawResponce responce;
 LedEvents led_events = {0};

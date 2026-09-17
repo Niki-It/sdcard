@@ -12,83 +12,75 @@
 #include "sdio.h"
 #include "SEGGER_RTT.h"
 #include "led_controller/led_controller.h"
+#include <stm32f4xx_ll_bus.h>
+#include "stm32f4xx_ll_rcc.h"
 
-void periph_init(void);
+static uint8_t frame_number = 0;
+void inc_frame_number();
 
-Leds leds = {
-    .VD1 = 0,
-    .VD2 = 0,
-    .VD3 = 0,
-    .VD4 = 0,
-    .VD5 = 0,
-    .VD6 = 0,
-    .VD7 = 0,
-    .VD8 = 0,
-    .VD9 = 1
-};
-
-Leds leds2 = {
-    .VD1 = 0,
-    .VD2 = 0,
-    .VD3 = 0,
-    .VD4 = 0,
-    .VD5 = 0,
-    .VD6 = 0,
-    .VD7 = 0,
-    .VD8 = 0,
-    .VD9 = 0
-};
-
-int main(void) 
+int main(void)
 {
-    periph_init();
 
-    // SDIO_TestCard();
-    // SDIO_RunBenchmark();
-    tusb_init();
-
-    while (1) 
-    {
-        SetLedStateCommand cmd = create_set_led_state(leds, frame_number);
-        send_sync(USART2, cmd.data, 3);
-        LL_mDelay(30);
-        
-        SetLedStateCommand cmd2 = create_set_led_state(leds2, frame_number);
-        send_sync(USART2, cmd.data, 3);
-
-        LL_mDelay(30);
-        //tud_task();
-    }
-}
-
-void periph_init()
-{
-    // Применение настроек тактирования из регистров
-    SystemCoreClockUpdate();
-
-    // Инициализация RTT (SEGGER RTT)
-    SEGGER_RTT_Init();
-
-    // Инициализация пинов и тактирования
     Clock_Init();
+
+    LL_Init1msTick(SystemCoreClock); 
+    NVIC_SetPriority(SysTick_IRQn, 0);
+
+    // LL_RCC_ClocksTypeDef clocks = {0};
+    // LL_RCC_GetSystemClocksFreq(&clocks);
+
+
     GPIO_Init();
     NVIC_Init();
-
-    SDIO_Periph_Init();
-
-    // Инициализация задержек
-    LL_Init1msTick(SystemCoreClock);
-
     led_controller_usart_init();
-    // // Инициализация модулей
-    // soft_i2c_init();
-    // aic3104_init();
-    // I2S2_Init();
 
-    // mux_select(2, MUX_CHANNEL_X2);
-    // I2S2_StartTransmitIT();
+    Leds leds = {
+        .VD1 = 1,
+        .VD2 = 1,
+        .VD3 = 1,
+        .VD4 = 1,
+        .VD5 = 0,
+        .VD6 = 0,
+        .VD7 = 0,
+        .VD8 = 0,
+        .VD9 = 0
+    };
 
-    // aic3104_init_clocking();
-    // aic3104_init_analog_bypass();
+    Leds leds2 = {
+        .VD1 = 0,
+        .VD2 = 0,
+        .VD3 = 0,
+        .VD4 = 0,
+        .VD5 = 1,
+        .VD6 = 1,
+        .VD7 = 1,
+        .VD8 = 1,
+        .VD9 = 1
+    };
+    
+    while(1)
+    { 
+        SetLedStateCommand cmd = create_set_led_state(leds, frame_number);
+        send_sync(USART2, cmd.data, 3);
+        LL_mDelay(100);
+
+        inc_frame_number();
+        
+        SetLedStateCommand cmd2 = create_set_led_state(leds2, frame_number);
+        send_sync(USART2, cmd2.data, 3);
+
+        LL_mDelay(100);
+        inc_frame_number();
+    }
+
+    return 0;
 }
 
+void inc_frame_number()
+{
+    frame_number++;
+    if (frame_number > 3) 
+    {
+        frame_number = 0;
+    }
+}

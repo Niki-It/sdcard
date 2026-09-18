@@ -11,6 +11,13 @@ extern "C" {
  * Макросы конфигурации (аналоги LL_SDIO_...)
  * ---------------------------------------------------------------------------- */
 
+ // индексы комманд
+#define SD_CMD0                                 0U                                                    
+#define SD_CMD8    8U
+#define SD_CMD55   55U
+#define SD_ACMD41  41U
+#define SD_CMD2 2U
+
 /* Управление питанием (регистр POWER, биты [1:0]) */
 #define MIN_SDIO_POWER_OFF              (0x00000000U)
 #define MIN_SDIO_POWER_ON               (0x00000003U)

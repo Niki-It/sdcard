@@ -44,7 +44,7 @@ int main(void)
     periph_init();
 
     SDIO_TestCard();
-    // SDIO_RunBenchmark();
+    SDIO_RunBenchmark();
     tusb_init();
 
     while (1) 
@@ -74,11 +74,12 @@ void periph_init()
     Clock_Init();
     GPIO_Init();
     NVIC_Init();
+    LL_Init1msTick(SystemCoreClock);
+
 
     SDIO_Periph_Init();
 
     // Инициализация задержек
-    LL_Init1msTick(SystemCoreClock);
 
     led_controller_usart_init();
     // // Инициализация модулей

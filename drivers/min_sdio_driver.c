@@ -99,7 +99,7 @@ void MIN_SDIO_Init(SDIO_TypeDef *SDIOx, MIN_SDIO_InitTypeDef *SDIO_InitStruct)
     tmpreg |= SDIO_InitStruct->HardwareFlowControl;
     
     /* Делитель частоты занимает младшие 8 бит (0-7) */
-    tmpreg |= (SDIO_InitStruct->ClockDiv & 0x000000FFU);
+    tmpreg |= (SDIO_InitStruct->ClockDiv & SDIO_CLKCR_CLKDIV_Msk);
 
     /* Записываем обратно в регистр */
     SDIOx->CLKCR = tmpreg;
@@ -108,7 +108,7 @@ void MIN_SDIO_Init(SDIO_TypeDef *SDIOx, MIN_SDIO_InitTypeDef *SDIO_InitStruct)
 void MIN_SDIO_SetPowerState(SDIO_TypeDef *SDIOx, uint32_t PowerState)
 {
     /* Очищаем биты PWRCTRL [1:0] и устанавливаем новое состояние */
-    SDIOx->POWER &= ~0x00000003U;
+    SDIOx->POWER &= ~SDIO_POWER_PWRCTRL;
     SDIOx->POWER |= PowerState;
 }
 
@@ -118,35 +118,40 @@ void MIN_SDIO_EnableClock(SDIO_TypeDef *SDIOx)
     SDIOx->CLKCR |= MIN_SDIO_CLOCK_ENABLE;
 }
 
+
+// маска очистки флагов 0-10 бит
+#define SDIO_ICR_ALL_FLAGS_CLEAR (~((1U << 11) - 1U))
+
+
 uint32_t MIN_SDIO_SendCmd(SDIO_TypeDef *SDIOx, uint8_t cmd_index, uint32_t arg, uint32_t resp_type)
 {
     uint32_t timeout = 100000;
 
     // 1. Очищаем флаги прерываний статуса
-    SDIOx->ICR = 0x000005FFU; 
+    SDIOx->ICR = SDIO_ICR_ALL_FLAGS_CLEAR; 
 
     // 2. Записываем аргумент команды
     SDIOx->ARG = arg;
 
     // 3. Формируем регистр команды
-    uint32_t cmd_reg = (uint32_t)cmd_index | resp_type | (1U << 10); // CPSMEN
+    uint32_t cmd_reg = (uint32_t)cmd_index | resp_type | SDIO_CMD_CPSMEN;
     SDIOx->CMD = cmd_reg;
 
     // 4. Ждем завершения в зависимости от типа ответа
     if (resp_type == MIN_SDIO_CMD_NO_RESPONSE) {
-        // Для команд без ответа ждем флаг CMDSENT (бит 6)
-        while ((!(SDIOx->STA & (1U << 6))) && (timeout-- > 0));
+        // Для команд без ответа ждем флаг CMDSENT 
+        while ((!(SDIOx->STA & SDIO_STA_CMDSENT)) && (timeout-- > 0));
     } else {
-        // Для команд с ответом ждем флаг CMDREND (бит 8) - ответ получен, CRC пройден
-        while ((!(SDIOx->STA & (1U << 8))) && (timeout-- > 0));
+        // Для команд с ответом ждем флаг CMDREND  - ответ получен, CRC пройден
+        while ((!(SDIOx->STA & SDIO_STA_CMDREND)) && (timeout-- > 0));
         
         // Проверяем, не было ли ошибок
-        if (SDIOx->STA & (1U << 2)) { // CRCFAIL (бит 2)
-            SDIOx->ICR = (1U << 2);   // Сбрасываем флаг
+        if (SDIOx->STA & SDIO_STA_CCRCFAIL) { // CRCFAIL (бит 2)
+            SDIOx->ICR = SDIO_ICR_CCRCFAILC;   // Сбрасываем флаг
             return 2; // Ошибка CRC
         }
-        if (SDIOx->STA & (1U << 3)) { // CTIMEOUT (бит 3)
-            SDIOx->ICR = (1U << 3);   // Сбрасываем флаг
+        if (SDIOx->STA & SDIO_STA_CTIMEOUT) { // CTIMEOUT (бит 3)
+            SDIOx->ICR = SDIO_ICR_CTIMEOUTC;   // Сбрасываем флаг
             return 1; // Таймаут
         }
     }

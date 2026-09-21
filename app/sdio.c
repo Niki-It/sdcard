@@ -2,6 +2,7 @@
 #include "stm32f4xx_ll_utils.h"
 #include "core_cm4.h" // Для доступа к DWT
 #include "SEGGER_RTT.h"
+#include "stdbool.h"
 
 void SDIO_Periph_Init(void)
 {
@@ -29,10 +30,34 @@ void SDIO_Periph_Init(void)
 #define SD_ERR_CMD2     4
 #define SD_ERR_CMD3     5
 
+/*---------- CMD8 ---------*/
+// Напряжение 2.7V - 3.6V
+#define SD_CMD8_VHS_27_36V      (1U << 8)
+// Контрольный паттерн
+#define SD_CMD8_CHECK_PATTERN   0xAA 
+// Итоговый аргумент для отправки в CMD8
+#define SD_CMD8_ARG             (SD_CMD8_VHS_27_36V | SD_CMD8_CHECK_PATTERN)
+#define SD_CMD8_RESP_MASK       ((1U << 12) - 1U)
+
+
+/*---------- CMD55 ---------*/
+#define SD_R1_APP_CMD_BIT           (1U << 5)     // Флаг: следующая команда будет ACMD
+
+/*---------- ACMD41 ---------*/
+#define SD_ACMD41_HCS_BIT           (1U << 30)    // Host Capacity Support (поддержка SDHC/SDXC)
+#define SD_ACMD41_VOLTAGE_WINDOW    (0x1FFU << 15)
+// Итоговый аргумент для ACMD41
+#define SD_ACMD41_ARG               (SD_ACMD41_HCS_BIT | SD_ACMD41_VOLTAGE_WINDOW)
+
+/* Биты ответа ACMD41 (OCR Register) */
+#define SD_OCR_BUSY_BIT             (1U << 31)    // Card Power Up Status (1 = готова)
+#define SD_OCR_CCS_BIT              (1U << 30)    // Card Capacity Status (1 = SDHC/SDXC)
+
+#define MAX_ATTEMPTS 5000
 uint32_t SDIO_TestCard(void)
 {
     uint32_t response = 0;
-    uint32_t timeout = 5000;
+    uint32_t command_code = 0;
     
     SEGGER_RTT_printf(0, "\r\n[SDIO] Starting SD card initialization...\r\n");
 
@@ -40,108 +65,99 @@ uint32_t SDIO_TestCard(void)
     // 1. CMD0: GO_IDLE_STATE
     // ---------------------------------------------------------
     SEGGER_RTT_printf(0, "[SDIO] CMD0: GO_IDLE_STATE\r\n");
-    if (MIN_SDIO_SendCmd(SDIO, 0, 0x00000000, MIN_SDIO_CMD_NO_RESPONSE) != 0) {
+    if (MIN_SDIO_SendCmd(SDIO, SD_CMD0, 0x00000000, MIN_SDIO_RESP_NONE) != 0) {
         SEGGER_RTT_printf(0, "[SDIO] ERROR: CMD0 failed\r\n");
         return SD_ERR_NO_CARD;
     }
     
     // Задержка минимум 74 такта CLK (при 400 кГц это ~185 мкс)
-    for(volatile uint32_t i = 0; i < 1000000; i++);
+    LL_mDelay(1);
     SEGGER_RTT_printf(0, "[SDIO] CMD0 OK\r\n");
 
     // ---------------------------------------------------------
     // 2. CMD8: SEND_IF_COND (проверка SD v2.0+)
     // ---------------------------------------------------------
     SEGGER_RTT_printf(0, "[SDIO] CMD8: SEND_IF_COND (arg=0x000001AA)\r\n");
-    if (MIN_SDIO_SendCmd(SDIO, 8, 0x000001AA, MIN_SDIO_CMD_SHORT_RESPONSE) != 0) {
+    if ((command_code = MIN_SDIO_SendCmd(SDIO, SD_CMD8, 0x000001AA, MIN_SDIO_RESP_SHORT_CRC)) != 0) {
         SEGGER_RTT_printf(0, "[SDIO] ERROR: CMD8 timeout - no card?\r\n");
         return SD_ERR_NO_CARD;
     }
     
+    SEGGER_RTT_printf(0, "[SDIO] CMD8: %u\r\n", command_code);
     response = SDIO->RESP1;
     SEGGER_RTT_printf(0, "[SDIO] CMD8 Response: 0x%08X\r\n", response);
     
-    if ((response & 0x00000FFF) != 0x000001AA) {
-        SEGGER_RTT_printf(0, "[SDIO] ERROR: CMD8 check pattern mismatch\r\n");
+    if ((response & SD_CMD8_RESP_MASK) != SD_CMD8_ARG) {
+        SEGGER_RTT_printf(0, "[SDIO] ERROR: CMD8 check pattern or voltage mismatch\r\n");
         return SD_ERR_CMD8;
     }
+
     SEGGER_RTT_printf(0, "[SDIO] CMD8 OK: SD v2.0+ card detected\r\n");
 
     // ---------------------------------------------------------
     // 3. ACMD41: SD_SEND_OP_COND (инициализация)
     // ---------------------------------------------------------
     SEGGER_RTT_printf(0, "[SDIO] ACMD41: SD_SEND_OP_COND (HCS=1, VDD=3.3V)\r\n");
+    
     uint32_t acmd41_attempts = 0;
-    
-    // Правильный аргумент: HCS=1 (бит 30) + поддерживаемое напряжение (биты 23:0)
-    // 0x40FF8000 = HCS=1 + VDD=2.7-3.6V (из ответа CMD8)
-    uint32_t acmd41_arg = 0x40FF8000;
-    
-    while (timeout-- > 0) {
-        acmd41_attempts++;
+    bool is_acmd41_success = false;
+    for (; acmd41_attempts < MAX_ATTEMPTS; acmd41_attempts++)
+    {
+        if (MIN_SDIO_SendCmd(SDIO, SD_CMD55, 0, MIN_SDIO_RESP_SHORT_CRC) == 1) 
+        {
+            LL_mDelay(10);
+            continue;  
+        }
+
+        if (!(SDIO->RESP1 & SD_R1_APP_CMD_BIT)) 
+        {
+            LL_mDelay(10);
+            continue;  
+        }
         
-        // 3.1. CMD55: APP_CMD
-        uint32_t cmd55_result = MIN_SDIO_SendCmd(SDIO, 55, 0x00000000, MIN_SDIO_CMD_SHORT_RESPONSE);
-        if (cmd55_result != 0) {
-            if (acmd41_attempts <= 3) {
-                SEGGER_RTT_printf(0, "[SDIO] Attempt %u: CMD55 FAILED (error=%u)\r\n", acmd41_attempts, cmd55_result);
-            }
-            for(volatile uint32_t i = 0; i < 100000; i++);
+        uint32_t result = 0;
+        if ((result = MIN_SDIO_SendCmd(SDIO, SD_ACMD41, SD_ACMD41_ARG,  MIN_SDIO_RESP_SHORT_NOCRC)) == 1) 
+        {
+            LL_mDelay(10);
             continue;
         }
+
         
-        // Проверяем ответ CMD55 (должен быть R1 с битом APP_CMD = 1)
-        uint32_t cmd55_response = SDIO->RESP1;
-        if (!(cmd55_response & (1U << 5))) {
-            if (acmd41_attempts <= 3) {
-                SEGGER_RTT_printf(0, "[SDIO] Attempt %u: CMD55 response=0x%08X (APP_CMD bit not set!)\r\n", 
-                                acmd41_attempts, cmd55_response);
+        response = SDIO->RESP1;
+        SEGGER_RTT_printf(0, "[SDIO] Success ACMD41 %u \r\n", response);
+
+        
+        // Проверяем, готова ли карта (бит BUSY должен быть снят)
+        if (response & SD_OCR_BUSY_BIT) {
+            // Карта готова! Определяем тип
+            if (response & SD_OCR_CCS_BIT) 
+            {
+                SEGGER_RTT_printf(0, "[SDIO] SDHC/SDXC card", acmd41_attempts);
+            } 
+            else {
+                SEGGER_RTT_printf(0, "[SDIO] ERROR: SDSC not supported", acmd41_attempts);
+                return SD_ERR_ACMD41;
             }
-        }
-        
-        // 3.2. ACMD41: Инициализация с полным OCR
-        uint32_t acmd41_result = MIN_SDIO_SendCmd(SDIO, 41, acmd41_arg, MIN_SDIO_CMD_SHORT_RESPONSE);
-        if (acmd41_result != 0) {
-            if (acmd41_attempts <= 3) {
-                SEGGER_RTT_printf(0, "[SDIO] Attempt %u: ACMD41 FAILED (error=%u)\r\n", acmd41_attempts, acmd41_result);
-            }
-            for(volatile uint32_t i = 0; i < 100000; i++);
-            continue;
-        }
-        
-        MIN_SDIO_GetResponse(SDIO, &response);
-        
-        // Логируем первые попытки и каждую 100-ю
-        if (acmd41_attempts <= 5 || acmd41_attempts % 100 == 0) {
-            SEGGER_RTT_printf(0, "[SDIO] Attempt %u: OCR=0x%08X\r\n", acmd41_attempts, response);
-        }
-        
-        // Проверяем бит 31 (Card Power Up Status)
-        if (response & (1U << 31)) {
-            SEGGER_RTT_printf(0, "[SDIO] ACMD41 OK after %u attempts\r\n", acmd41_attempts);
-            
-            if (response & (1U << 30)) {
-                SEGGER_RTT_printf(0, "[SDIO] Card type: SDHC/SDXC (>2GB)\r\n");
-            } else {
-                SEGGER_RTT_printf(0, "[SDIO] Card type: SDSC (<=2GB)\r\n");
-            }
+
+            is_acmd41_success = true;
             break;
         }
-        
         // Задержка ~10 мс
-        for(volatile uint32_t i = 0; i < 1000000; i++);
+        LL_mDelay(10);
     }
+
     
-    if (timeout == 0) {
-        SEGGER_RTT_printf(0, "[SDIO] ERROR: ACMD41 timeout after %u attempts\r\n", acmd41_attempts);
+    if (!is_acmd41_success) {
+        SEGGER_RTT_printf(0, "[SDIO] ERROR: ACMD41 max attempts after %u attempts\r\n", acmd41_attempts);
         return SD_ERR_ACMD41;
     }
 
     // ---------------------------------------------------------
     // 4. CMD2: ALL_SEND_CID (чтение идентификации)
     // ---------------------------------------------------------
+    
     SEGGER_RTT_printf(0, "[SDIO] CMD2: ALL_SEND_CID\r\n");
-    if (MIN_SDIO_SendCmd(SDIO, 2, 0x00000000, MIN_SDIO_CMD_LONG_RESPONSE) != 0) {
+    if (MIN_SDIO_SendCmd(SDIO, SD_CMD2, 0x00000000,  MIN_SDIO_RESP_LONG_CRC ) != 0) {
         SEGGER_RTT_printf(0, "[SDIO] ERROR: CMD2 failed\r\n");
         return SD_ERR_CMD2;
     }
@@ -151,7 +167,7 @@ uint32_t SDIO_TestCard(void)
     // 5. CMD3: SEND_RELATIVE_ADDR (получение RCA)
     // ---------------------------------------------------------
     SEGGER_RTT_printf(0, "[SDIO] CMD3: SEND_RELATIVE_ADDR\r\n");
-    if (MIN_SDIO_SendCmd(SDIO, 3, 0x00000000, MIN_SDIO_CMD_SHORT_RESPONSE) != 0) {
+    if (MIN_SDIO_SendCmd(SDIO, 3, 0x00000000, MIN_SDIO_RESP_SHORT_CRC) != 0) {
         SEGGER_RTT_printf(0, "[SDIO] ERROR: CMD3 failed\r\n");
         return SD_ERR_CMD3;
     }
@@ -168,9 +184,9 @@ uint32_t SDIO_TestCard(void)
 // Функция переключения на высокую скорость (из предыдущего ответа)
 void SDIO_SetHighSpeed(uint16_t rca)
 {
-    MIN_SDIO_SendCmd(SDIO, 7, (uint32_t)rca << 16, MIN_SDIO_CMD_SHORT_RESPONSE);
-    MIN_SDIO_SendCmd(SDIO, 55, (uint32_t)rca << 16, MIN_SDIO_CMD_SHORT_RESPONSE);
-    MIN_SDIO_SendCmd(SDIO, 6, 0x00000002, MIN_SDIO_CMD_SHORT_RESPONSE);
+    MIN_SDIO_SendCmd(SDIO, 7, (uint32_t)rca << 16,MIN_SDIO_RESP_SHORT_CRC);
+    MIN_SDIO_SendCmd(SDIO, 55, (uint32_t)rca << 16, MIN_SDIO_RESP_SHORT_CRC);
+    MIN_SDIO_SendCmd(SDIO, 6, 0x00000002, MIN_SDIO_RESP_SHORT_CRC);
     
     uint32_t clkcr = SDIO->CLKCR;
     clkcr |= 0x00000800U; // 4-битная шина
@@ -219,7 +235,7 @@ void SDIO_RunBenchmark(void)
     SEGGER_RTT_printf(0, "\r\n--- TEST 1: 400 kHz, 1-bit mode ---\r\n");
     
     // Выбираем карту (обязательно перед чтением/записью!)
-    MIN_SDIO_SendCmd(SDIO, 7, (uint32_t)rca << 16, MIN_SDIO_CMD_SHORT_RESPONSE);
+    MIN_SDIO_SendCmd(SDIO, 7, (uint32_t)rca << 16, MIN_SDIO_RESP_SHORT_CRC);
 
     // Запись
     start_cycle = DWT->CYCCNT;

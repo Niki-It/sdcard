@@ -58,6 +58,19 @@ typedef struct {
     uint32_t HardwareFlowControl; // Аппаратный контроль потока
     uint32_t ClockDiv;            // Делитель частоты (0..255)
 } MIN_SDIO_InitTypeDef;
+typedef enum
+{
+    MIN_SDIO_RESP_NONE,        // Ответа нет: CMD0
+    MIN_SDIO_RESP_SHORT_CRC,   // Короткий ответ с CRC: R1/R6/R7
+    MIN_SDIO_RESP_SHORT_NOCRC, // Короткий ответ без проверки CRC: R3
+    MIN_SDIO_RESP_LONG_CRC     // Длинный ответ: R2
+} MIN_SDIO_ResponseType;
+typedef enum
+{
+    MIN_SDIO_OK = 0,
+    MIN_SDIO_TIMEOUT,
+    MIN_SDIO_CRC_ERROR
+} MIN_SDIO_Status;
 
 /* ----------------------------------------------------------------------------
  * Прототипы функций

@@ -13,7 +13,7 @@ uint32_t MIN_SDIO_ReadBlock(SDIO_TypeDef *SDIOx, uint32_t block_addr, uint32_t *
     SDIOx->DCTRL = (9U << 4) | (1U << 0);
 
     // 3. Отправляем команду чтения (CMD17)
-    if (MIN_SDIO_SendCmd(SDIOx, 17, block_addr, MIN_SDIO_CMD_SHORT_RESPONSE) != 0) {
+    if (MIN_SDIO_SendCmd(SDIOx, 17, block_addr, MIN_SDIO_RESP_SHORT_CRC) != 0) {
         SDIOx->DCTRL = 0;
         return 1; // Ошибка команды
     }
@@ -51,7 +51,7 @@ uint32_t MIN_SDIO_WriteBlock(SDIO_TypeDef *SDIOx, uint32_t block_addr, const uin
     SDIOx->DCTRL = (9U << 4) | (1U << 1) | (1U << 0);
 
     // 3. Отправляем команду записи (CMD24)
-    if (MIN_SDIO_SendCmd(SDIOx, 24, block_addr, MIN_SDIO_CMD_SHORT_RESPONSE) != 0) {
+    if (MIN_SDIO_SendCmd(SDIOx, 24, block_addr, MIN_SDIO_RESP_SHORT_CRC) != 0) {
         SDIOx->DCTRL = 0;
         return 1; // Ошибка команды
     }
@@ -99,7 +99,7 @@ void MIN_SDIO_Init(SDIO_TypeDef *SDIOx, MIN_SDIO_InitTypeDef *SDIO_InitStruct)
     tmpreg |= SDIO_InitStruct->HardwareFlowControl;
     
     /* Делитель частоты занимает младшие 8 бит (0-7) */
-    tmpreg |= (SDIO_InitStruct->ClockDiv & 0x000000FFU);
+    tmpreg |= (SDIO_InitStruct->ClockDiv & SDIO_CLKCR_CLKDIV_Msk);
 
     /* Записываем обратно в регистр */
     SDIOx->CLKCR = tmpreg;
@@ -108,7 +108,7 @@ void MIN_SDIO_Init(SDIO_TypeDef *SDIOx, MIN_SDIO_InitTypeDef *SDIO_InitStruct)
 void MIN_SDIO_SetPowerState(SDIO_TypeDef *SDIOx, uint32_t PowerState)
 {
     /* Очищаем биты PWRCTRL [1:0] и устанавливаем новое состояние */
-    SDIOx->POWER &= ~0x00000003U;
+    SDIOx->POWER &= ~SDIO_POWER_PWRCTRL;
     SDIOx->POWER |= PowerState;
 }
 
@@ -118,42 +118,130 @@ void MIN_SDIO_EnableClock(SDIO_TypeDef *SDIOx)
     SDIOx->CLKCR |= MIN_SDIO_CLOCK_ENABLE;
 }
 
+
+
+
+static uint32_t MIN_SDIO_BuildCmd(
+    uint8_t cmd_index,
+    MIN_SDIO_ResponseType response_type)
+{
+    uint32_t cmd = cmd_index & 0x3FU;   // bits 5:0 — номер команды
+
+    switch (response_type)
+    {
+        case MIN_SDIO_RESP_NONE:
+            /*
+             * WAITRESP = 00
+             */
+            break;
+
+        case MIN_SDIO_RESP_SHORT_CRC:
+        case MIN_SDIO_RESP_SHORT_NOCRC:
+            /*
+             * WAITRESP = 01
+             */
+            cmd |= SDIO_CMD_WAITRESP_0;
+            break;
+
+        case MIN_SDIO_RESP_LONG_CRC:
+            /*
+             * WAITRESP = 11
+             */
+            cmd |= SDIO_CMD_WAITRESP_0 |
+                   SDIO_CMD_WAITRESP_1;
+            break;
+    }
+
+    /*
+     * bit 10 — Command path state machine enable.
+     *
+     * После записи CMD с этим битом SDIO начинает
+     * передавать команду на карту.
+     */
+    cmd |= SDIO_CMD_CPSMEN;
+
+    return cmd;
+}
+static MIN_SDIO_Status MIN_SDIO_WaitCmd(
+    SDIO_TypeDef *SDIOx,
+    MIN_SDIO_ResponseType response_type,
+    uint32_t timeout)
+{
+    while (timeout > 0U)
+    {
+        uint32_t sta = SDIOx->STA;
+
+        /* Карта вообще не ответила */
+        if (sta & SDIO_STA_CTIMEOUT)
+        {
+            SDIOx->ICR = SDIO_ICR_CTIMEOUTC;
+            return MIN_SDIO_TIMEOUT;
+        }
+
+        /*
+         * Ответ пришёл, но CRC неправильный.
+         * Это проверяем независимо от CMDREND.
+         */
+        if (sta & SDIO_STA_CCRCFAIL)
+        {
+            SDIOx->ICR = SDIO_ICR_CCRCFAILC;
+
+            if (response_type == MIN_SDIO_RESP_SHORT_NOCRC)
+                return MIN_SDIO_OK;
+
+            return MIN_SDIO_CRC_ERROR;
+        }
+
+        /* Команда без ответа */
+        if (response_type == MIN_SDIO_RESP_NONE)
+        {
+            if (sta & SDIO_STA_CMDSENT)
+            {
+                SDIOx->ICR = SDIO_ICR_CMDSENTC;
+                return MIN_SDIO_OK;
+            }
+        }
+        else
+        {
+            /* Ответ принят нормально */
+            if (sta & SDIO_STA_CMDREND)
+            {
+                SDIOx->ICR = SDIO_ICR_CMDRENDC;
+                return MIN_SDIO_OK;
+            }
+        }
+
+        timeout--;
+    }
+
+    return MIN_SDIO_TIMEOUT;
+}
+// маска очистки флагов 0-10 бит
+#define SDIO_ICR_ALL_FLAGS_CLEAR (~((1U << 11) - 1U))
+
+
 uint32_t MIN_SDIO_SendCmd(SDIO_TypeDef *SDIOx, uint8_t cmd_index, uint32_t arg, uint32_t resp_type)
 {
-    uint32_t timeout = 100000;
 
     // 1. Очищаем флаги прерываний статуса
-    SDIOx->ICR = 0x000005FFU; 
+    SDIOx->ICR = SDIO_ICR_ALL_FLAGS_CLEAR; 
 
     // 2. Записываем аргумент команды
     SDIOx->ARG = arg;
 
     // 3. Формируем регистр команды
-    uint32_t cmd_reg = (uint32_t)cmd_index | resp_type | (1U << 10); // CPSMEN
-    SDIOx->CMD = cmd_reg;
+    uint32_t cmd = MIN_SDIO_BuildCmd(
+        cmd_index,
+        resp_type
+    );
+    SDIOx->CMD = cmd;
 
-    // 4. Ждем завершения в зависимости от типа ответа
-    if (resp_type == MIN_SDIO_CMD_NO_RESPONSE) {
-        // Для команд без ответа ждем флаг CMDSENT (бит 6)
-        while ((!(SDIOx->STA & (1U << 6))) && (timeout-- > 0));
-    } else {
-        // Для команд с ответом ждем флаг CMDREND (бит 8) - ответ получен, CRC пройден
-        while ((!(SDIOx->STA & (1U << 8))) && (timeout-- > 0));
-        
-        // Проверяем, не было ли ошибок
-        if (SDIOx->STA & (1U << 2)) { // CRCFAIL (бит 2)
-            SDIOx->ICR = (1U << 2);   // Сбрасываем флаг
-            return 2; // Ошибка CRC
-        }
-        if (SDIOx->STA & (1U << 3)) { // CTIMEOUT (бит 3)
-            SDIOx->ICR = (1U << 3);   // Сбрасываем флаг
-            return 1; // Таймаут
-        }
-    }
+    return MIN_SDIO_WaitCmd(
+        SDIOx,
+        resp_type,
+        100000U
+    );
 
-    if (timeout == 0) return 1; // Общий таймаут
-
-    return 0; // Успех
 }
 
 uint32_t MIN_SDIO_GetResponse(SDIO_TypeDef *SDIOx, uint32_t *response)

@@ -54,98 +54,36 @@ void SDIO_Periph_Init(void)
 #define SD_OCR_CCS_BIT              (1U << 30)    // Card Capacity Status (1 = SDHC/SDXC)
 
 #define MAX_ATTEMPTS 5000
-
-// ---------------LOG REGION---------------------------
-#define DEBUG 1
-static const char *MIN_SDIO_StatusString(uint32_t status)
-{
-    switch (status)
-    {
-        case MIN_SDIO_OK:
-            return "OK";
-
-        case MIN_SDIO_TIMEOUT:
-            return "TIMEOUT";
-
-        case MIN_SDIO_CRC_ERROR:
-            return "CRC_ERROR";
-
-        default:
-            return "UNKNOWN";
-    }
-}
-
-
-static uint32_t MIN_SDIO_SendCmdLogged(
-    SDIO_TypeDef *SDIOx,
-    uint8_t cmd_index,
-    uint32_t arg,
-    MIN_SDIO_ResponseType resp_type
-)
-{
-
-    uint32_t status = MIN_SDIO_SendCmd(
-        SDIOx,
-        cmd_index,
-        arg,
-        resp_type
-    );
-
-#if DEBUG
-    if (status == MIN_SDIO_OK)
-    {}
-    else
-    {
-        SEGGER_RTT_printf(
-            0,
-            "[SDIO] CMD%u ERROR: status=%lu (%s)\r\n",
-            cmd_index,
-            status,
-            MIN_SDIO_StatusString(status)
-        );
-    }
-#endif
-
-    return status;
-}
-// ---------------LOG REGION ENDS ---------------------------
-
 uint32_t SDIO_TestCard(void)
 {
     uint32_t response = 0;
-    uint32_t status_code = 0;
+    uint32_t command_code = 0;
     
     SEGGER_RTT_printf(0, "\r\n[SDIO] Starting SD card initialization...\r\n");
 
-    // CMD0
-    status_code = MIN_SDIO_SendCmdLogged(
-        SDIO,
-        SD_CMD0,
-        0x00000000,
-        MIN_SDIO_RESP_NONE
-    );
-
-    if(status_code != 0) 
-    {
+    // ---------------------------------------------------------
+    // 1. CMD0: GO_IDLE_STATE
+    // ---------------------------------------------------------
+    SEGGER_RTT_printf(0, "[SDIO] CMD0: GO_IDLE_STATE\r\n");
+    if (MIN_SDIO_SendCmd(SDIO, SD_CMD0, 0x00000000, MIN_SDIO_RESP_NONE) != 0) {
+        SEGGER_RTT_printf(0, "[SDIO] ERROR: CMD0 failed\r\n");
         return SD_ERR_NO_CARD;
     }
     
+    // Задержка минимум 74 такта CLK (при 400 кГц это ~185 мкс)
     LL_mDelay(1);
+    SEGGER_RTT_printf(0, "[SDIO] CMD0 OK\r\n");
 
-    // CMD8
-    status_code = MIN_SDIO_SendCmdLogged(
-        SDIO,
-        SD_CMD8,
-        0x000001AA,
-        MIN_SDIO_RESP_SHORT_CRC
-    );
-
-    if(status_code != 0) 
-    {
+    // ---------------------------------------------------------
+    // 2. CMD8: SEND_IF_COND (проверка SD v2.0+)
+    // ---------------------------------------------------------
+    SEGGER_RTT_printf(0, "[SDIO] CMD8: SEND_IF_COND (arg=0x000001AA)\r\n");
+    if ((command_code = MIN_SDIO_SendCmd(SDIO, SD_CMD8, 0x000001AA, MIN_SDIO_RESP_SHORT_CRC)) != 0) {
+        SEGGER_RTT_printf(0, "[SDIO] ERROR: CMD8 timeout - no card?\r\n");
         return SD_ERR_NO_CARD;
     }
     
-    SEGGER_RTT_printf(0, "[SDIO] CMD8: %u\r\n", status_code);
+    SEGGER_RTT_printf(0, "[SDIO] CMD8: %u\r\n", command_code);
     response = SDIO->RESP1;
     SEGGER_RTT_printf(0, "[SDIO] CMD8 Response: 0x%08X\r\n", response);
     

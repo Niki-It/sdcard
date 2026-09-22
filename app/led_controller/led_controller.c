@@ -64,7 +64,7 @@ void process_rx_byte(uint8_t byte)
         uint16_t raw_led_data = responce.data[1] | ((uint16_t)responce.data[2] << 8);
 
         led_events = parse_events(raw_led_data);
-        events_buffer_push(led_events);
+        inc_frame_number();
         responce_idx = 0;
 
 

@@ -44,16 +44,16 @@ int main(void)
 
     SDIO_TestCard();
     SDIO_RunBenchmark();
-    tusb_init();
+    //tusb_init();
 
     while (1) 
     {
-        // SetLedStateCommand cmd = create_set_led_state(leds, frame_number);
-        // send_command(USART2, cmd);
-        // LL_mDelay(100);
+        SetLedStateCommand cmd = create_set_led_state(leds, frame_number);
+        send_command(USART2, cmd);
+        LL_mDelay(100);
         
-        // SetLedStateCommand cmd2 = create_set_led_state(leds2, frame_number);
-        // send_command(USART2, cmd2);
+        SetLedStateCommand cmd2 = create_set_led_state(leds2, frame_number);
+        send_command(USART2, cmd2);
 
 
         LL_mDelay(100);

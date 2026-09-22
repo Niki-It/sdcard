@@ -34,3 +34,4 @@ void led_controller_usart_init(void);
 void led_controller_clock_init(void);
 
 extern LedEvents led_events;
+extern volatile uint8_t frame_number;

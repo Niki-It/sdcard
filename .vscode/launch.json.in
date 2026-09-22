@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "@DEVICE_NAME@ Debug (openocd)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "jlink",
+            "device" : "@DEVICE_NAME@",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/@PROJECT_NAME@.elf",
+            "svdFile": "${workspaceFolder}/openocd/@SVD_FILE@",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "@OPENOCD_TARGET@",
+                "${workspaceFolder}/openocd/openocd_config.cfg"
+            ],
+            "runToEntryPoint": "main",
+            "preLaunchTask": "CMake Build",
+        }
+    ]
+}

@@ -1,84 +1,250 @@
 #include "min_sdio_driver.h"
 
-uint32_t MIN_SDIO_ReadBlock(SDIO_TypeDef *SDIOx, uint32_t block_addr, uint32_t *buffer)
+#define WAIT_TIMEOUT 1000000U
+#define SD_BLOCK_SIZE  512U
+#define SD_BLOCK_WORDS (SD_BLOCK_SIZE / sizeof(uint32_t))
+
+static uint32_t MIN_SDIO_WaitDataEnd(SDIO_TypeDef *SDIOx)
 {
-    uint32_t timeout = 1000000;
-    uint32_t words_to_read = 128; // 512 байт / 4 = 128 слов по 32 бита
+    uint32_t timeout = WAIT_TIMEOUT;
 
-    // 1. Очищаем флаги статуса
-    SDIOx->ICR = 0x000005FFU;
+    while (timeout > 0U)
+    {
+        uint32_t sta = SDIOx->STA;
 
-    // 2. Настраиваем регистр управления данными (DCTRL)
-    // Block size = 9 (2^9 = 512 байт), направление: от карты к CPU (0), включаем передачу
-    SDIOx->DCTRL = (9U << 4) | (1U << 0);
+        if (sta & SDIO_STA_DCRCFAIL)
+            return 2U;
 
-    // 3. Отправляем команду чтения (CMD17)
-    if (MIN_SDIO_SendCmd(SDIOx, 17, block_addr, MIN_SDIO_RESP_SHORT_CRC) != 0) {
-        SDIOx->DCTRL = 0;
-        return 1; // Ошибка команды
+        if (sta & SDIO_STA_DTIMEOUT)
+            return 3U;
+
+        if (sta & SDIO_STA_RXOVERR)
+            return 4U;
+
+        if (sta & SDIO_STA_TXUNDERR)
+            return 5U;
+
+        if (sta & SDIO_STA_STBITERR)
+            return 6U;
+
+        if (sta & SDIO_STA_DATAEND)
+            return 0U;
+
+        timeout--;
     }
 
-    // 4. Читаем данные из FIFO
-    while (words_to_read > 0 && timeout--) {
-        if (SDIOx->STA & SDIO_STA_RXDAVL) { // Данные доступны в FIFO
-            *buffer++ = SDIOx->FIFO;
-            words_to_read--;
-        }
-        if (SDIOx->STA & (SDIO_STA_DCRCFAIL | SDIO_STA_DTIMEOUT)) {
-            SDIOx->DCTRL = 0;
-            return 2; // Ошибка данных
-        }
-    }
-
-    // 5. Ждем завершения передачи данных (флаг DATAEND)
-    timeout = 1000000;
-    while (!(SDIOx->STA & SDIO_STA_DATAEND) && timeout--);
-    
-    SDIOx->DCTRL = 0; // Отключаем передачу данных
-    return (timeout == 0) ? 3 : 0;
+    return 7U;   // software timeout
 }
 
-uint32_t MIN_SDIO_WriteBlock(SDIO_TypeDef *SDIOx, uint32_t block_addr, const uint32_t *buffer)
+
+
+uint32_t MIN_SDIO_ReadBlock(
+    SDIO_TypeDef *SDIOx,
+    uint32_t block_addr,
+    uint32_t *buffer)
 {
-    uint32_t timeout = 1000000;
-    uint32_t words_to_write = 128; // 512 байт / 4 = 128 слов по 32 бита
-    const uint32_t *src = buffer;
+    uint32_t words_left = SD_BLOCK_WORDS;
 
-    // 1. Очищаем флаги статуса
-    SDIOx->ICR = 0x000005FFU;
+    /*
+     * Очищаем старые data-флаги.
+     */
+    SDIOx->ICR =
+        SDIO_STA_DCRCFAIL |
+        SDIO_STA_DTIMEOUT |
+        SDIO_STA_RXOVERR |
+        SDIO_STA_TXUNDERR |
+        SDIO_STA_DATAEND |
+        SDIO_STA_STBITERR;
 
-    // 2. Настраиваем DCTRL: Block size = 9 (512 байт), направление: от CPU к карте (бит 1 = 1), включаем передачу
-    SDIOx->DCTRL = (9U << 4) | (1U << 1) | (1U << 0);
+    /*
+     * Сколько байт должна принять data-блок схема.
+     */
+    SDIOx->DLEN = SD_BLOCK_SIZE;
 
-    // 3. Отправляем команду записи (CMD24)
-    if (MIN_SDIO_SendCmd(SDIOx, 24, block_addr, MIN_SDIO_RESP_SHORT_CRC) != 0) {
+    /*
+     * Таймаут data path.
+     */
+    SDIOx->DTIMER = 0xFFFFFFFFU;
+
+    /*
+     * DCTRL:
+     *
+     * DBLOCKSIZE = 9 -> 2^9 = 512 байт
+     * DTDIR      = 1 -> CARD -> MCU
+     * DTEN       = 1 -> data path enabled
+     */
+    SDIOx->DCTRL =
+        (9U << 4) |
+        SDIO_DCTRL_DTDIR |
+        SDIO_DCTRL_DTEN;
+
+    /*
+     * CMD17 = READ_SINGLE_BLOCK
+     */
+    if (MIN_SDIO_SendCmd(
+            SDIOx,
+            17,
+            block_addr,
+            MIN_SDIO_RESP_SHORT_CRC) != MIN_SDIO_OK)
+    {
         SDIOx->DCTRL = 0;
-        return 1; // Ошибка команды
+        return 1U;
     }
 
-    // 4. Записываем данные в FIFO
-    while (words_to_write > 0 && timeout--) {
-        // Ждем, пока FIFO станет наполовину пустым (гарантированно есть место для записи)
-        // Исправленный макрос: SDIO_STA_TXFIFOHE (Half Empty)
-        if (SDIOx->STA & SDIO_STA_TXFIFOHE) {
-            SDIOx->FIFO = *src++;
-            words_to_write--;
-        }
-        
-        // Проверка на ошибки передачи данных
-        if (SDIOx->STA & (SDIO_STA_DCRCFAIL | SDIO_STA_DTIMEOUT)) {
+    /*
+     * Теперь карта должна начать передавать 512 байт.
+     */
+    while (words_left > 0U)
+    {
+        uint32_t sta = SDIOx->STA;
+
+        if (sta & SDIO_STA_DCRCFAIL)
+        {
             SDIOx->DCTRL = 0;
-            return 2; // Ошибка данных (CRC или таймаут)
+            return 2U;
+        }
+
+        if (sta & SDIO_STA_DTIMEOUT)
+        {
+            SDIOx->DCTRL = 0;
+            return 3U;
+        }
+
+        if (sta & SDIO_STA_RXOVERR)
+        {
+            SDIOx->DCTRL = 0;
+            return 4U;
+        }
+
+        /*
+         * В FIFO есть минимум 8 слов.
+         */
+        if (sta & SDIO_STA_RXFIFOHF)
+        {
+            for (uint32_t i = 0; i < 8U && words_left > 0U; i++)
+            {
+                *buffer++ = SDIOx->FIFO;
+                words_left--;
+            }
+        }
+        /*
+         * В FIFO есть хотя бы одно слово.
+         */
+        else if (sta & SDIO_STA_RXDAVL)
+        {
+            *buffer++ = SDIOx->FIFO;
+            words_left--;
         }
     }
 
-    // 5. Ждем завершения передачи данных (флаг DATAEND)
-    timeout = 1000000;
-    while (!(SDIOx->STA & SDIO_STA_DATAEND) && timeout--);
-    
-    SDIOx->DCTRL = 0; // Отключаем передачу данных
-    
-    return (timeout == 0) ? 3 : 0; // 3 = таймаут ожидания DATAEND, 0 = успех
+    /*
+     * Все 512 байт прочитаны из FIFO.
+     * Ждём окончательного завершения data path.
+     */
+    uint32_t result = MIN_SDIO_WaitDataEnd(SDIOx);
+
+    SDIOx->DCTRL = 0;
+
+    return result;
+}
+uint32_t MIN_SDIO_WriteBlock(
+    SDIO_TypeDef *SDIOx,
+    uint32_t block_addr,
+    const uint32_t *buffer)
+{
+    uint32_t words_left = SD_BLOCK_WORDS;
+
+    /*
+     * Очищаем старые data-флаги.
+     */
+    SDIOx->ICR =
+        SDIO_STA_DCRCFAIL |
+        SDIO_STA_DTIMEOUT |
+        SDIO_STA_RXOVERR |
+        SDIO_STA_TXUNDERR |
+        SDIO_STA_DATAEND |
+        SDIO_STA_STBITERR;
+
+    /*
+     * Передаём ровно 512 байт.
+     */
+    SDIOx->DLEN = SD_BLOCK_SIZE;
+
+    /*
+     * Таймаут data path.
+     */
+    SDIOx->DTIMER = 0xFFFFFFFFU;
+
+    /*
+     * DCTRL:
+     *
+     * DBLOCKSIZE = 9 -> 512 байт
+     * DTDIR      = 0 -> MCU -> CARD
+     * DTEN       = 1
+     */
+    SDIOx->DCTRL =
+        (9U << 4) |
+        SDIO_DCTRL_DTEN;
+
+    /*
+     * CMD24 = WRITE_SINGLE_BLOCK
+     */
+    if (MIN_SDIO_SendCmd(
+            SDIOx,
+            24,
+            block_addr,
+            MIN_SDIO_RESP_SHORT_CRC) != MIN_SDIO_OK)
+    {
+        SDIOx->DCTRL = 0;
+        return 1U;
+    }
+
+    /*
+     * Заполняем TX FIFO.
+     */
+    while (words_left > 0U)
+    {
+        uint32_t sta = SDIOx->STA;
+
+        if (sta & SDIO_STA_DCRCFAIL)
+        {
+            SDIOx->DCTRL = 0;
+            return 2U;
+        }
+
+        if (sta & SDIO_STA_DTIMEOUT)
+        {
+            SDIOx->DCTRL = 0;
+            return 3U;
+        }
+
+        if (sta & SDIO_STA_TXUNDERR)
+        {
+            SDIOx->DCTRL = 0;
+            return 4U;
+        }
+
+        /*
+         * В FIFO достаточно места для 8 слов.
+         */
+        if (sta & SDIO_STA_TXFIFOHE)
+        {
+            for (uint32_t i = 0; i < 8U && words_left > 0U; i++)
+            {
+                SDIOx->FIFO = *buffer++;
+                words_left--;
+            }
+        }
+    }
+
+    /*
+     * Ждём полного окончания передачи.
+     */
+    uint32_t result = MIN_SDIO_WaitDataEnd(SDIOx);
+
+    SDIOx->DCTRL = 0;
+
+    return result;
 }
 
 void MIN_SDIO_Init(SDIO_TypeDef *SDIOx, MIN_SDIO_InitTypeDef *SDIO_InitStruct)

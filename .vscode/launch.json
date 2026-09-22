@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "STM32F405RG Debug (openocd)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "jlink",
+            "device" : "STM32F405RG",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/F405.elf",
+            "svdFile": "${workspaceFolder}/openocd/STM32F405.svd",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32f4x.cfg",
+                "${workspaceFolder}/openocd/openocd_config.cfg"
+            ],
+            "runToEntryPoint": "main",
+            "preLaunchTask": "CMake Build",
+        }
+    ]
+}

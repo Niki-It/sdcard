@@ -1,0 +1,26 @@
+{
+    "configurations": [
+        {
+            "name": "@DEVICE_NAME@",
+            "includePath": [
+                "${workspaceFolder}/app",
+                "${workspaceFolder}/core",
+                "${workspaceFolder}/drivers",
+                "${workspaceFolder}/src",
+                "@COMPILER_INCLUDE_PATH_1@",
+                "@COMPILER_INCLUDE_PATH_2@"
+            ],
+            "defines": [
+                "@MCU_DEFINE@",
+                "@CLOCK_DEFINE@",
+                "@LL_DRIVER_DEFINE@"
+            ],
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+            "intelliSenseMode": "gcc-arm",
+            "compilerPath": "@COMPILER_PATH@",
+            "cStandard": "c17",
+            "cppStandard": "c++17"
+        }
+    ],
+    "version": 4
+}

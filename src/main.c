@@ -11,9 +11,11 @@
 #include "tusb.h"
 #include "sdio.h"
 #include "SEGGER_RTT.h"
-#include "led_controller/led_controller.h"
 #include <stm32f4xx_ll_bus.h>
 #include "stm32f4xx_ll_rcc.h"
+#include "led_controller/led_controller.h"
+#include "led_controller/led_raw/led_raw.h"
+#include "stm32f4xx_ll_tim.h"
 
 Leds leds = {
     .VD1 = 1,
@@ -38,56 +40,76 @@ Leds leds2 = {
     .VD8 = 0,
     .VD9 = 0
 };
+bool next_led = false;
+uint32_t tick_counter = 1;
+uint32_t message_counter = 0;
+uint32_t send_counter = 0;
 
+void periph_init();
 int main(void) 
 {
-
-    SDIO_TestCard();
-    SDIO_RunBenchmark();
+    periph_init();
+    //SDIO_TestCard();
+    //SDIO_RunBenchmark();
     //tusb_init();
-
+    ButtonStatus button_status;
     while (1) 
     {
-        SetLedStateCommand cmd = create_set_led_state(leds, frame_number);
-        send_command(USART2, cmd);
-        LL_mDelay(100);
-        
-        SetLedStateCommand cmd2 = create_set_led_state(leds2, frame_number);
-        send_command(USART2, cmd2);
-
-
-        LL_mDelay(100);
-        //tud_task();
+        button_status = poll_button_events();
+        if(button_status.ready == 1)
+        {
+            message_counter++;
+        }
     }
+}
+void tim6_handler(void)
+{
+    send_SetLedState(USART2);
+    send_counter++;
+
+    if(next_led)
+    {
+        set_leds_state(leds);
+        next_led = false;
+    }
+    else
+    {
+        set_leds_state(leds2);
+        next_led = true;
+    }
+}
+void SysTick_Handler(void)
+{
+    if(tick_counter % 1000 == 0)
+    {
+        SEGGER_RTT_printf(0, "messages received: %u \r\n", message_counter);
+        tick_counter = 0;
+    }
+    tick_counter++;
 }
 
 void periph_init()
 {
-    // Применение настроек тактирования из регистров
-    SystemCoreClockUpdate();
-
+    
     // Инициализация RTT (SEGGER RTT)
     SEGGER_RTT_Init();
 
     // Инициализация пинов и тактирования
     Clock_Init();
+    // Применение настроек тактирования из регистров
+    SystemCoreClockUpdate();
 
-    LL_Init1msTick(SystemCoreClock); 
-    NVIC_SetPriority(SysTick_IRQn, 0);
+    SysTick_Config(SystemCoreClock / 1000);
 
     // LL_RCC_ClocksTypeDef clocks = {0};
     // LL_RCC_GetSystemClocksFreq(&clocks);
 
-
     GPIO_Init();
     NVIC_Init();
-    LL_Init1msTick(SystemCoreClock);
-
+    NVIC_EnableIRQ(SysTick_IRQn);
 
     SDIO_Periph_Init();
-
-    // Инициализация задержек
-
-    led_controller_usart_init();
-
+    LedController_PeriphInit();
 }
+
+

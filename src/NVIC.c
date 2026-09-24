@@ -2,13 +2,15 @@
 #include "NVIC.h"
 #include "tusb.h"
 #include "led_controller/led_controller.h"
+#include "led_controller/led_raw/led_raw.h"
+
 
 extern void I2S2_Callback();
 
 void NVIC_Init(void){
-    // NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP);
 
     NVIC_SetPriority(SysTick_IRQn, 0);
+    
     NVIC_SetPriority(SPI2_IRQn, 1);
     NVIC_EnableIRQ(SPI2_IRQn);
 

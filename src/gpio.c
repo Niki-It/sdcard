@@ -5,7 +5,7 @@
 #include "soft_i2c.h"
 #include "aic3104.h"
 #include "mux.h"
-#include "led_controller/led_controller.h"
+#include "led_controller/led_raw/led_raw.h"
 
 void GPIO_Init(void)
 {

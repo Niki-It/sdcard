@@ -1,37 +1,62 @@
 #pragma once 
 #include "stdint.h"
-#include "stm32f4xx_ll_usart.h"
-#include "led_uart/led_uart.h"
+#include "stdbool.h"
+#include <stm32f4xx_ll_usart.h>
 
-//extern volatile uint8_t frame_number;
-void usart2_handler(void);
+typedef struct 
+{
+    bool VD1;
+    bool VD2;
+    bool VD3;
+    bool VD4;
+    bool VD5;
+    bool VD6;
+    bool VD7;
+    bool VD8;
+    bool VD9;
+} Leds;
 
-void send_command(USART_TypeDef *USARTx, SetLedStateCommand cmd);
-void usart2_handler(void);
-void uart4_handler();
-void send_sync(USART_TypeDef *USARTx, const uint8_t* raw, uint8_t len);
+typedef struct 
+{
+    uint8_t data[3];
+} SetLedStateCommand;
 
-//void send_sync(USART_TypeDef *USARTx, const uint8_t* raw, uint8_t len);
+typedef struct
+{
+    uint8_t data[4];
+} RawResponce;
 
-/**
- * Инициализация прерываний необходимых для связи с пультом
- */
-void led_controller_nvic_init();
+typedef enum
+{
+    NoEvent,
+    Short,
+    DoubleShort,
+    Long,
+} LedEvent;
+typedef struct
+{
+    LedEvent VD1;
+    LedEvent VD2;
+    LedEvent VD3;
+    LedEvent VD4;
+    LedEvent VD5;
+    LedEvent VD6;
+    LedEvent VD7;
+    LedEvent VD8;
+} ButtonEvents;
+typedef struct 
+{
+    // 1 - готов, 0 не готов
+    uint8_t ready;
+    ButtonEvents button_events;
+} ButtonStatus;
 
-/**
- * Инициализация пиноов необходимых для связи с пультом
- */
-void led_controller_gpio_init();
+// ---------------- Core логика ---------------------------
+ButtonStatus poll_button_events();
+void set_leds_state(Leds leds);
 
-/**
- * Инициализация USART ов необходимых для связи с пультом
- */
-void led_controller_usart_init(void);
-
-/**
- * Настройка тактирования ов необходимых для связи с пультом
- */
-void led_controller_clock_init(void);
-
-extern LedEvents led_events;
-extern volatile uint8_t frame_number;
+void send_SetLedState(USART_TypeDef *USARTx);
+extern void tim6_handler();
+// ------ Вспомогательные функции ---------------------
+void LedController_PeriphInit();
+void write_events(RawResponce response);

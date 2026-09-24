@@ -16,7 +16,7 @@ set(CMAKE_SIZE ${TOOLCHAIN_PREFIX}size)
 
 set(COMPILER_PATH "${ARM_PATH}/bin/arm-none-eabi-gcc.exe")
 set(COMPILER_INCLUDE_PATH_1 "${ARM_PATH}/arm-none-eabi/include")
-set(COMPILER_INCLUDE_PATH_2 "${ARM_PATH}/lib/gcc/arm-none-eabi/15.3.1/include")
+set(COMPILER_INCLUDE_PATH_2 "${ARM_PATH}/lib/gcc/arm-none-eabi/${ARM_VERSION}/include")
 
 # 5. Поиск библиотек
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

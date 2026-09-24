@@ -3,6 +3,127 @@
 #include "core_cm4.h" // Для доступа к DWT
 #include "SEGGER_RTT.h"
 #include "stdbool.h"
+#include "sdio.h"
+
+// ------------------------ Новый API ----------------------------
+#define SD_OCR_BUSY_BIT         (1U << 31)    // Card Power Up Status (1 = готова)
+#define SD_OCR_CCS_BIT              (1U << 30)    // Card Capacity Status (1 = SDHC/SDXC)
+#define SD_MAX_ACMD41_ATTEMPTS 300
+
+#define SD_CMD8_VHS_27_36V      (1U << 8)
+#define SD_CMD8_CHECK_PATTERN   0xAA 
+#define SD_CMD8_ARG             (SD_CMD8_VHS_27_36V | SD_CMD8_CHECK_PATTERN)
+#define SD_CMD8_RESP_MASK       ((1U << 12) - 1U)
+
+#define SD_ACMD41_HCS_BIT           (1U << 30)    // Host Capacity Support (поддержка SDHC/SDXC)
+#define SD_ACMD41_VOLTAGE_WINDOW    (0x1FFU << 15)
+#define SD_ACMD41_ARG               (SD_ACMD41_HCS_BIT | SD_ACMD41_VOLTAGE_WINDOW)
+
+sd_status_t sd_init(sd_card_info_t *info)
+{
+    uint32_t rca;
+    uint32_t ocr;
+    uint8_t  scr[8];
+    sd_status_t status;
+
+    if (info == NULL)
+        return SD_ERR_IO;
+    
+    sdio_ll_reginit();
+    sdio_ll_set_clock(SD_CLK_INIT);
+    sdio_ll_set_bus_width(SD_BUS_1BIT);
+
+    // CMD0
+    status =  sdio_ll_cmd(
+        SD_CMD0,
+        0, 
+        SD_RESP_NONE
+    );
+    if(status != SD_OK)
+        return status;
+
+
+    // CMD8
+    status = sdio_ll_cmd(
+        SD_CMD8, 
+        SD_CMD8_ARG, 
+        SD_RESP_NONE
+    );
+    if(status != SD_OK)
+        return status;
+
+    if(sdio_ll_get_short_response() & SD_CMD8_RESP_MASK != SD_CMD8_ARG) 
+        return SD_ERR_UNSUPPORTED;
+
+    uint32_t acmd41_attempts = 0;
+
+    do
+    {
+        /* CMD55 */
+        status = sdio_ll_cmd(
+            SD_CMD55,
+            0,
+            SD_RESP_SHORT_CRC
+        );
+
+        if (status != SD_OK)
+            return status;
+
+        /* ACMD41 */
+        status = sdio_ll_cmd(
+            SD_ACMD41,
+            SD_ACMD41_ARG,
+            SD_RESP_SHORT_NOCRC
+        );
+
+        if (status != SD_OK)
+            return status;
+
+        ocr = sdio_ll_get_short_response();
+        acmd41_attempts++;
+
+        /* Карта ещё не готова */
+         if ((ocr & SD_OCR_BUSY_BIT) != 0)
+        {
+            /* SDSC не поддерживается */
+            if ((ocr & SD_OCR_CCS_BIT) == 0)
+                return SD_ERR_UNSUPPORTED;
+
+            break;
+        }
+
+    } while (acmd41_attempts < SD_MAX_ACMD41_ATTEMPTS);
+
+    if (acmd41_attempts >= SD_MAX_ACMD41_ATTEMPTS)
+        return SD_ERR_TIMEOUT;
+
+    status = sdio_ll_cmd(SD_CMD2, 0, SD_RESP_LONG_CRC);
+    if (status != SD_OK)
+        return status;
+    
+    if((status = sd_cmd3(&rca)) != SD_OK)
+        return status;
+}
+
+sd_status_t sd_cmd3(uint32_t *rca)
+{
+    uint32_t response;
+    sd_status_t status = sdio_ll_cmd(SD_CMD3, 0, SD_RESP_SHORT_CRC);
+
+    if(status != SD_OK)
+    {
+        return status;
+    }
+
+    response = sdio_ll_get_short_response();
+
+    *rca = (response >> 16) & 0xFFFF;
+
+    return SD_OK;
+}
+
+
+// ------------------ Легаси API ------------------------------
 
 void SDIO_Periph_Init(void)
 {
@@ -32,26 +153,18 @@ void SDIO_Periph_Init(void)
 
 /*---------- CMD8 ---------*/
 // Напряжение 2.7V - 3.6V
-#define SD_CMD8_VHS_27_36V      (1U << 8)
-// Контрольный паттерн
-#define SD_CMD8_CHECK_PATTERN   0xAA 
-// Итоговый аргумент для отправки в CMD8
-#define SD_CMD8_ARG             (SD_CMD8_VHS_27_36V | SD_CMD8_CHECK_PATTERN)
-#define SD_CMD8_RESP_MASK       ((1U << 12) - 1U)
+
 
 
 /*---------- CMD55 ---------*/
 #define SD_R1_APP_CMD_BIT           (1U << 5)     // Флаг: следующая команда будет ACMD
 
 /*---------- ACMD41 ---------*/
-#define SD_ACMD41_HCS_BIT           (1U << 30)    // Host Capacity Support (поддержка SDHC/SDXC)
-#define SD_ACMD41_VOLTAGE_WINDOW    (0x1FFU << 15)
-// Итоговый аргумент для ACMD41
-#define SD_ACMD41_ARG               (SD_ACMD41_HCS_BIT | SD_ACMD41_VOLTAGE_WINDOW)
+
 
 /* Биты ответа ACMD41 (OCR Register) */
-#define SD_OCR_BUSY_BIT             (1U << 31)    // Card Power Up Status (1 = готова)
-#define SD_OCR_CCS_BIT              (1U << 30)    // Card Capacity Status (1 = SDHC/SDXC)
+
+
 
 #define MAX_ATTEMPTS 5000
 uint32_t SDIO_TestCard(void)

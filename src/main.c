@@ -49,7 +49,7 @@ void periph_init();
 int main(void) 
 {
     periph_init();
-    //SDIO_TestCard();
+    SDIO_TestCard();
     //SDIO_RunBenchmark();
     //tusb_init();
     ButtonStatus button_status;
@@ -82,8 +82,8 @@ void SysTick_Handler(void)
 {
     if(tick_counter % 1000 == 0)
     {
-        SEGGER_RTT_printf(0, "messages received: %u \r\n", message_counter);
-        tick_counter = 0;
+        // SEGGER_RTT_printf(0, "messages received: %u \r\n", message_counter);
+        // tick_counter = 0;
     }
     tick_counter++;
 }

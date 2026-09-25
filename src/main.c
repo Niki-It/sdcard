@@ -9,7 +9,7 @@
 #include "i2s2.h"
 #include "NVIC.h"
 #include "tusb.h"
-#include "sdio.h"
+#include "sdio/sdio.h"
 #include "SEGGER_RTT.h"
 #include <stm32f4xx_ll_bus.h>
 #include "stm32f4xx_ll_rcc.h"
@@ -42,30 +42,29 @@ Leds leds2 = {
 };
 bool next_led = false;
 uint32_t tick_counter = 1;
-uint32_t message_counter = 0;
-uint32_t send_counter = 0;
+
+sd_card_info_t card_info;
+
 
 void periph_init();
 int main(void) 
 {
     periph_init();
-    SDIO_TestCard();
     //SDIO_RunBenchmark();
     //tusb_init();
     ButtonStatus button_status;
     while (1) 
     {
-        button_status = poll_button_events();
-        if(button_status.ready == 1)
-        {
-            message_counter++;
-        }
+
+        // button_status = poll_button_events();
+        // if(button_status.ready == 1)
+        // {
+        // }
     }
 }
 void tim6_handler(void)
 {
     send_SetLedState(USART2);
-    send_counter++;
 
     if(next_led)
     {
@@ -88,6 +87,73 @@ void SysTick_Handler(void)
     tick_counter++;
 }
 
+static void SD_Test(void)
+{
+    sd_status_t status;
+
+    status = sd_init(&card_info);
+
+    if (status != SD_OK)
+    {
+        SEGGER_RTT_printf(0, "SD init error: %d\r\n", status);
+        return;
+    }
+
+
+    uint8_t write_buffer[512];
+    uint8_t read_buffer[512];
+
+    for (uint32_t i = 0; i < 512; i++)
+        write_buffer[i] = (uint8_t)i;
+
+    status = sd_write_blocks(
+        &card_info,
+        1,
+        write_buffer,
+        1
+    );
+
+    if (status != SD_OK)
+    {
+        SEGGER_RTT_printf(0, "SD WRITE ERROR: %d\r\n", status);
+        return;
+    }
+
+    SEGGER_RTT_printf(0, "SD WRITE OK\r\n");
+
+    status = sd_read_blocks(
+        &card_info,
+        1000,
+        read_buffer,
+        1
+    );
+
+    if (status != SD_OK)
+    {
+        SEGGER_RTT_printf(0, "SD READ ERROR: %d\r\n", status);
+        return;
+    }
+
+    SEGGER_RTT_printf(0, "SD READ OK\r\n");
+
+    for (uint32_t i = 0; i < 512; i++)
+    {
+        if (write_buffer[i] != read_buffer[i])
+        {
+            SEGGER_RTT_printf(
+                0,
+                "SD VERIFY ERROR: offset=%u W=%02X R=%02X\r\n",
+                i,
+                write_buffer[i],
+                read_buffer[i]
+            );
+
+            return;
+        }
+    }
+
+    SEGGER_RTT_printf(0, "SD VERIFY OK 3 MHZ\r\n");
+}
 void periph_init()
 {
     
@@ -108,8 +174,13 @@ void periph_init()
     NVIC_Init();
     NVIC_EnableIRQ(SysTick_IRQn);
 
-    SDIO_Periph_Init();
     LedController_PeriphInit();
+
+    SD_Test();
+
+    //SDIO_Periph_Init();
+    //SDIO_TestCard();
 }
+
 
 

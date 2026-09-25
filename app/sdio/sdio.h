@@ -13,6 +13,7 @@ typedef struct {
     uint32_t block_count;
     uint32_t block_size;
     bool high_capacity;
+    uint32_t rca;
 } sd_card_info_t;
 
 
@@ -20,12 +21,14 @@ sd_status_t sd_init(sd_card_info_t *info);
 
 
 sd_status_t sd_read_blocks(
+    sd_card_info_t *info,
     uint32_t lba,
     uint8_t *buffer,
     uint32_t count
 );
 
 sd_status_t sd_write_blocks(
+    sd_card_info_t *info,
     uint32_t lba,
     const uint8_t *buffer,
     uint32_t count

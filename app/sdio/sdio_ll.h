@@ -36,26 +36,45 @@ typedef enum
 typedef enum
 {
     SD_CMD0 = 0,
-    SD_CMD2,
-    SD_CMD3,
-    SD_CMD7,
-    SD_CMD8,
-    SD_CMD9,
-    SD_CMD55,
-    SD_ACMD41,
-    SD_ACMD52,
-    AD_ACMD6
+    SD_CMD2 = 2,
+    SD_CMD3 = 3,
+    SD_ACMD6 = 6,
+    SD_CMD7 = 7,
+    SD_CMD8 = 8,
+    SD_CMD9 = 9,
+    SD_CMD12 = 12,
+    SD_CMD13 = 13,
+    SD_CMD18 = 18,
+    SD_CMD25 = 25,
+    SD_ACMD41 = 41,
+    SD_ACMD52 = 52,
+    SD_CMD55 = 55,
     
 } sdio_command_idx;
 
 sd_status_t sdio_ll_cmd(
     uint8_t cmd_index,
     uint32_t arg,
-    uint32_t resp_type
+    sdio_resp_type_t resp_type
 );
+
+#define SDIO_POWER_ON (0x00000003U)
+
 sd_status_t sdio_ll_reginit();
+sd_status_t sdio_ll_power_on(void);
+sd_status_t sdio_ll_clock_enable(void);
+
 sd_status_t sdio_ll_set_clock(sdio_clock_t);
 sd_status_t sdio_ll_set_bus_width(sdio_bus_width_t);
 
 uint32_t sdio_ll_get_short_response();
 void sdio_ll_get_long_response(uint32_t response[4]);
+
+sd_status_t sdio_ll_data_write(
+    const uint8_t *buffer,
+    uint32_t length
+);
+sd_status_t sdio_ll_data_read(
+    uint8_t *buffer,
+    uint32_t length
+);

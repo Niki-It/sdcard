@@ -1,22 +1,17 @@
-#include <stdint.h>
-#include "stm32f4xx.h"
-#include "stm32f4xx_ll_utils.h"
+
 #include "soft_i2c.h"
 #include "aic3104.h"
-#include "gpio.h"
-#include "clock.h"
+#include "main.h"
 #include "mux.h"
 #include "i2s2.h"
-#include "NVIC.h"
+
 #include "tusb.h"
 #include "ff.h"
 #include "sdio/sdio.h"
-#include "SEGGER_RTT.h"
-#include <stm32f4xx_ll_bus.h>
-#include "stm32f4xx_ll_rcc.h"
+
 #include "led_controller/led_controller.h"
 #include "led_controller/led_raw/led_raw.h"
-#include "stm32f4xx_ll_tim.h"
+
 
 Leds leds = {
     .VD1 = 1,
@@ -53,14 +48,10 @@ int main(void)
     periph_init();
     //SDIO_RunBenchmark();
     tusb_init();
-    ButtonStatus button_status;
+
     while (1) 
     {
         tud_task();
-        // button_status = poll_button_events();
-        // if(button_status.ready == 1)
-        // {
-        // }
     }
 }
 void tim6_handler(void)

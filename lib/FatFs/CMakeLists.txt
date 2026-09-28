@@ -28,7 +28,7 @@ add_library(FatFs STATIC
     src/ff.c
     src/ffsystem.c
     src/ff_gen_drv.c
-    src/diskio.c
+    #src/diskio.c // у нас своя реализация diskio.c
     src/ffunicode.c
 )
 

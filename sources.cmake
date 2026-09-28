@@ -9,6 +9,8 @@ set(SOURCES
     "app/sdio/sdio.c"
     "app/sdio/sdio_ll.c"
     "app/soft_i2c.c"
+    "app/storage/diskio.c"
+    "app/storage/ram_disk.c"
     "app/usb_descriptors.c"
     "core/syscalls.c"
     "core/sysmem.c"

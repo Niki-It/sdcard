@@ -34,4 +34,4 @@ sd_status_t sd_write_blocks(
     uint32_t count
 );
 
-sd_status_t sd_sync(void); // не используется
+// sd_status_t sd_sync(void); // не используется

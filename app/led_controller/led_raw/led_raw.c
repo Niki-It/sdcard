@@ -117,14 +117,14 @@ void TIM6_DAC_IRQHandler(void)
 // ------------------ Инициализация периферии ---------------------------
 void led_controller_nvic_init()
 {
-    NVIC_SetPriority(USART2_IRQn, 0);
+    NVIC_SetPriority(USART2_IRQn, 1);
     NVIC_EnableIRQ(USART2_IRQn);
 
-    NVIC_SetPriority(UART4_IRQn, 0);
+    NVIC_SetPriority(UART4_IRQn, 1);
     NVIC_EnableIRQ(UART4_IRQn);
 
     //WARNING!! Значение должно бытьпрерывания TIM6 больше (ниже) чем у USART2(4)
-    NVIC_SetPriority(TIM6_DAC_IRQn, 1);
+    NVIC_SetPriority(TIM6_DAC_IRQn, 2);
     NVIC_EnableIRQ(TIM6_DAC_IRQn);
 }
 

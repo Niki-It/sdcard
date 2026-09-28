@@ -11,7 +11,7 @@ void NVIC_Init(void){
 
     NVIC_SetPriority(SysTick_IRQn, 0);
     
-    NVIC_SetPriority(SPI2_IRQn, 1);
+    NVIC_SetPriority(SPI2_IRQn, 3);
     NVIC_EnableIRQ(SPI2_IRQn);
 
     NVIC_SetPriority(OTG_FS_IRQn, 5);

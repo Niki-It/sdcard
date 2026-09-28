@@ -9,6 +9,7 @@
 #include "i2s2.h"
 #include "NVIC.h"
 #include "tusb.h"
+#include "ff.h"
 #include "sdio/sdio.h"
 #include "SEGGER_RTT.h"
 #include <stm32f4xx_ll_bus.h>
@@ -51,11 +52,11 @@ int main(void)
 {
     periph_init();
     //SDIO_RunBenchmark();
-    //tusb_init();
+    tusb_init();
     ButtonStatus button_status;
     while (1) 
     {
-
+        tud_task();
         // button_status = poll_button_events();
         // if(button_status.ready == 1)
         // {
@@ -152,7 +153,7 @@ static void SD_Test(void)
         }
     }
 
-    SEGGER_RTT_printf(0, "SD VERIFY OK 3 MHZ\r\n");
+    SEGGER_RTT_printf(0, "SD VERIFY OK 6 MHZ\r\n");
 }
 void periph_init()
 {
@@ -182,5 +183,18 @@ void periph_init()
     //SDIO_TestCard();
 }
 
+#define RAM_DISK_SIZE   (64 * 1024)   // 64 KB
+#define SECTOR_SIZE     512
+#define NUM_SECTORS     (RAM_DISK_SIZE / SECTOR_SIZE)
 
+static FATFS fs;
+static FIL file;
+
+static uint8_t work_buffer[FF_MAX_SS];
+
+static uint8_t ram_disk[RAM_DISK_SIZE];
+void file_test()
+{
+    
+}
 

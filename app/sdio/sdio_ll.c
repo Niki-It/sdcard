@@ -204,7 +204,7 @@ sd_status_t sdio_ll_set_clock(sdio_clock_t clock)
 
         case SD_CLK_WORK:
             /* 48 MHz / (0 + 2) = 24 MHz */
-            clkdiv = 22U; 
+            clkdiv = 6U; 
             break;
 
         default:

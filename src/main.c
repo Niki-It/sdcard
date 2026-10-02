@@ -6,11 +6,12 @@
 #include "i2s2.h"
 
 #include "tusb.h"
-#include "ff.h"
+
 #include "sdio/sdio.h"
 
 #include "led_controller/led_controller.h"
 #include "led_controller/led_raw/led_raw.h"
+
 
 
 Leds leds = {
@@ -43,9 +44,12 @@ sd_card_info_t card_info;
 
 
 void periph_init();
+void fs_unit();
+
 int main(void) 
 {
     periph_init();
+    fs_unit();
     //SDIO_RunBenchmark();
     tusb_init();
 
@@ -174,18 +178,5 @@ void periph_init()
     //SDIO_TestCard();
 }
 
-#define RAM_DISK_SIZE   (64 * 1024)   // 64 KB
-#define SECTOR_SIZE     512
-#define NUM_SECTORS     (RAM_DISK_SIZE / SECTOR_SIZE)
 
-static FATFS fs;
-static FIL file;
-
-static uint8_t work_buffer[FF_MAX_SS];
-
-static uint8_t ram_disk[RAM_DISK_SIZE];
-void file_test()
-{
-    
-}
 

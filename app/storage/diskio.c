@@ -16,7 +16,7 @@ DSTATUS disk_initialize(BYTE pdrv)
      * Для RAM-диска отдельная процедура инициализации
      * не требуется: память уже доступна.
      */
-    ram_disk_status = 0;
+    ram_disk_status = RES_OK;
 
     return ram_disk_status;
 }
@@ -68,8 +68,6 @@ DRESULT disk_read(
 }
 
 
-#if FF_FS_READONLY == 0
-
 DRESULT disk_write(
     BYTE pdrv,
     const BYTE *buff,
@@ -101,7 +99,6 @@ DRESULT disk_write(
     return RES_OK;
 }
 
-#endif
 
 
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)

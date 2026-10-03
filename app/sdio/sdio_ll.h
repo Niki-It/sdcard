@@ -1,5 +1,6 @@
 #pragma once
 #include "stdint.h"
+#include "stdbool.h"
 
 typedef enum 
 {
@@ -78,3 +79,5 @@ sd_status_t sdio_ll_data_read(
     uint8_t *buffer,
     uint32_t length
 );
+
+sd_status_t sdio_ll_dma_init(void);

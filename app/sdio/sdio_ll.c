@@ -204,7 +204,7 @@ sd_status_t sdio_ll_set_clock(sdio_clock_t clock)
 
         case SD_CLK_WORK:
             /* 48 MHz / (0 + 2) = 24 MHz */
-            clkdiv = 6U; 
+            clkdiv = 118U; 
             break;
 
         default:
@@ -249,37 +249,42 @@ sd_status_t sdio_ll_set_bus_width(sdio_bus_width_t width)
 }
 
 static uint32_t fifo_counter = 0;
-sd_status_t sdio_ll_fifo_write_word(uint32_t data)
+sd_status_t sdio_ll_fifo_write_words(const uint32_t *data, uint32_t words)
 {
     uint32_t status;
-    /*
-     * Ждем, пока в TX FIFO появится место.
-     */
-    while (!(SDIO->STA & SDIO_STA_TXFIFOHE))
-    {
+
+    if (data == NULL || words == 0U || words > 8U) {
+        return SD_ERR_IO;
+    }
+
+    while (!(SDIO->STA & SDIO_STA_TXFIFOHE)) {
         status = SDIO->STA;
 
-        if (status & SDIO_STA_TXUNDERR)
-        {
+        if (status & SDIO_STA_TXUNDERR) {
+            SEGGER_RTT_printf(0,
+                "TXUNDERR before FIFO write: STA=0x%08lX\r\n",
+                (unsigned long)status);
+
             SDIO->ICR = SDIO_ICR_TXUNDERRC;
             return SD_ERR_IO;
         }
 
-        if (status & SDIO_STA_DTIMEOUT)
-        {
+        if (status & SDIO_STA_DTIMEOUT) {
             SDIO->ICR = SDIO_ICR_DTIMEOUTC;
             return SD_ERR_TIMEOUT;
         }
 
-        if (status & SDIO_STA_DCRCFAIL)
-        {
+        if (status & SDIO_STA_DCRCFAIL) {
             SDIO->ICR = SDIO_ICR_DCRCFAILC;
             return SD_ERR_DATA_CRC;
         }
+
     }
 
-    SDIO->FIFO = data;
-    fifo_counter++;
+    for (uint32_t i = 0; i < words; i++) {
+        SDIO->FIFO = data[i];
+        fifo_counter++;
+    }
 
     return SD_OK;
 }
@@ -290,8 +295,6 @@ sd_status_t sdio_ll_data_write(
 )
 {
     uint32_t words;
-    uint32_t i;
-    uint32_t data;
     sd_status_t status;
 
     if (buffer == NULL || length == 0)
@@ -315,20 +318,39 @@ sd_status_t sdio_ll_data_write(
 
     words = length / 4U;
 
-    for (i = 0; i < words; i++)
-    {
-        data =
-            ((uint32_t)buffer[0])       |
-            ((uint32_t)buffer[1] << 8)  |
-            ((uint32_t)buffer[2] << 16) |
-            ((uint32_t)buffer[3] << 24);
 
-        status = sdio_ll_fifo_write_word(data);
+    uint32_t data[8];
+    uint32_t count;
+    for (uint32_t i = 0; i < words;)
+    {
+        count = words - i;
+        if (count > 8U) {
+            count = 8U;
+        }
+
+        for (uint32_t j = 0; j < count; j++) {
+            data[j] =
+                ((uint32_t)buffer[0])       |
+                ((uint32_t)buffer[1] << 8)  |
+                ((uint32_t)buffer[2] << 16) |
+                ((uint32_t)buffer[3] << 24);
+
+            buffer += 4;
+        }
+
+        status = sdio_ll_fifo_write_words(data, count);
 
         if (status != SD_OK)
+        {
+            SEGGER_RTT_printf(0,
+                "FIFO write failed: word=%lu/%lu STA=0x%08lX\r\n",
+                (unsigned long)i,
+                (unsigned long)words,
+                (unsigned long)SDIO->STA);
             return status;
+        }
 
-        buffer += 4;
+        i += count;
     }
 
     while (1)
@@ -474,4 +496,130 @@ sd_status_t sdio_ll_data_read(
             return SD_OK;
         }
     }
+}
+
+#include "stm32f4xx_ll_dma.h"
+#include "stm32f4xx_ll_bus.h"
+
+#define SDIO_DMA_RX_STREAM   LL_DMA_STREAM_3
+#define SDIO_DMA_TX_STREAM   LL_DMA_STREAM_6
+#define SDIO_DMA_CHANNEL     LL_DMA_CHANNEL_4
+
+sd_status_t sdio_ll_dma_init(void)
+{
+    /* Включаем тактирование DMA2 */
+    LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA2);
+
+    /* Отключаем stream перед конфигурацией */
+    LL_DMA_DisableStream(DMA2, SDIO_DMA_RX_STREAM);
+    LL_DMA_DisableStream(DMA2, SDIO_DMA_TX_STREAM);
+
+    while (LL_DMA_IsEnabledStream(DMA2, SDIO_DMA_RX_STREAM)) {}
+    while (LL_DMA_IsEnabledStream(DMA2, SDIO_DMA_TX_STREAM)) {}
+
+    /* Очищаем флаги RX */
+    LL_DMA_ClearFlag_FE3(DMA2);
+    LL_DMA_ClearFlag_DME3(DMA2);
+    LL_DMA_ClearFlag_TE3(DMA2);
+    LL_DMA_ClearFlag_HT3(DMA2);
+    LL_DMA_ClearFlag_TC3(DMA2);
+
+    /* Очищаем флаги TX */
+    LL_DMA_ClearFlag_FE6(DMA2);
+    LL_DMA_ClearFlag_DME6(DMA2);
+    LL_DMA_ClearFlag_TE6(DMA2);
+    LL_DMA_ClearFlag_HT6(DMA2);
+    LL_DMA_ClearFlag_TC6(DMA2);
+
+    /* RX: SDIO FIFO -> RAM */
+    LL_DMA_SetChannelSelection(
+        DMA2, SDIO_DMA_RX_STREAM,SDIO_DMA_CHANNEL
+    );
+    LL_DMA_SetDataTransferDirection(
+        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_DIRECTION_PERIPH_TO_MEMORY
+    );
+    LL_DMA_SetStreamPriorityLevel(
+        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_PRIORITY_VERYHIGH
+    );
+    LL_DMA_SetMode(
+        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_MODE_NORMAL
+    );
+    LL_DMA_SetPeriphIncMode(
+        DMA2, SDIO_DMA_RX_STREAM,  LL_DMA_PERIPH_NOINCREMENT
+    );
+    LL_DMA_SetMemoryIncMode(
+        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_MEMORY_INCREMENT
+    );
+    LL_DMA_SetPeriphSize(
+        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_PDATAALIGN_WORD
+    );
+    LL_DMA_SetMemorySize(
+        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_MDATAALIGN_WORD
+    );
+    LL_DMA_DisableFifoMode(DMA2, SDIO_DMA_RX_STREAM);
+
+    /* TX: RAM -> SDIO FIFO */
+    LL_DMA_SetChannelSelection(
+        DMA2, SDIO_DMA_TX_STREAM, SDIO_DMA_CHANNEL
+    );
+    LL_DMA_SetDataTransferDirection(
+        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_DIRECTION_MEMORY_TO_PERIPH
+    );
+    LL_DMA_SetStreamPriorityLevel(
+        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_PRIORITY_VERYHIGH
+    );
+    LL_DMA_SetMode(DMA2, SDIO_DMA_TX_STREAM, LL_DMA_MODE_NORMAL);
+
+    LL_DMA_SetPeriphIncMode(
+        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_PERIPH_NOINCREMENT
+    );
+    LL_DMA_SetMemoryIncMode(
+        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_MEMORY_INCREMENT
+    );
+    LL_DMA_SetPeriphSize(
+        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_PDATAALIGN_WORD);
+    LL_DMA_SetMemorySize(
+        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_MDATAALIGN_WORD
+    );
+    LL_DMA_DisableFifoMode(DMA2, SDIO_DMA_TX_STREAM);
+
+    /* SDIO is the flow controller */
+    /* RX: SDIO FIFO -> RAM */
+
+    /* Burst */
+    LL_DMA_SetPeriphBurstxfer(
+        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_PBURST_INC4
+    );
+
+    LL_DMA_SetMemoryBurstxfer(
+        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_MBURST_INC4
+    );
+
+    /* DMA FIFO */
+    LL_DMA_EnableFifoMode(DMA2, SDIO_DMA_RX_STREAM);
+
+    LL_DMA_SetFIFOThreshold(
+        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_FIFOTHRESHOLD_FULL
+    );
+
+
+    /* TX: RAM -> SDIO FIFO */
+
+    /* Burst */
+    LL_DMA_SetPeriphBurstxfer(
+        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_PBURST_INC4
+    );
+
+    LL_DMA_SetMemoryBurstxfer(
+        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_MBURST_INC4
+    );
+
+    /* DMA FIFO */
+    LL_DMA_EnableFifoMode(DMA2, SDIO_DMA_TX_STREAM);
+
+    LL_DMA_SetFIFOThreshold(
+        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_FIFOTHRESHOLD_FULL
+    );
+
+    return SD_OK;
 }

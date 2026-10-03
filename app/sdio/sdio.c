@@ -163,6 +163,10 @@ sd_status_t sd_init(sd_card_info_t *info)
 
     // Переключаем SDIO STM32 в 4-bit
     sdio_ll_set_bus_width(SD_BUS_4BIT);
+
+    if (sdio_ll_dma_init() != SD_OK)
+        return SD_ERR_DMA;
+
     return SD_OK;
 }
 
@@ -223,6 +227,7 @@ sd_status_t sd_cmd3(uint32_t *rca)
 }
 
 static sd_status_t sd_wait_ready(sd_card_info_t *info);
+
 sd_status_t sd_write_blocks(
     sd_card_info_t *info,
     uint32_t lba,
@@ -231,6 +236,7 @@ sd_status_t sd_write_blocks(
 )
 {
     sd_status_t status;
+    sd_status_t stop_status;
     uint32_t length;
 
     if (buffer == NULL || count == 0)
@@ -242,46 +248,78 @@ sd_status_t sd_write_blocks(
 
     length = count * info->block_size;
 
-    /*
-     * CMD25 - WRITE_MULTIPLE_BLOCK
-     *
-     * Для SDHC/SDXC аргументом является LBA.
-     * CMD23 специально не используем.
-     */
+    /* CMD25 - WRITE_MULTIPLE_BLOCK */
     status = sdio_ll_cmd(
         SD_CMD25,
         lba,
         SD_RESP_SHORT_CRC
     );
 
-    if (status != SD_OK)
+    if (status != SD_OK) {
+        SEGGER_RTT_printf(0,
+            "SD WRITE: CMD25 failed, LBA=%lu count=%lu status=%d\r\n",
+            (unsigned long)lba,
+            (unsigned long)count,
+            status);
         return status;
+    }
 
-    /*
-     * Передаем все блоки через FIFO.
-     * Даже если count == 1, здесь остается тот же путь.
-     */
-    status = sdio_ll_data_write(buffer, length);
+    status = sdio_ll_data_write_dma(buffer, length);
 
-    if (status != SD_OK)
+    if (status != SD_OK) {
+        SEGGER_RTT_printf(0,
+            "SD WRITE: DMA failed, LBA=%lu count=%lu length=%lu status=%d\r\n",
+            (unsigned long)lba,
+            (unsigned long)count,
+            (unsigned long)length,
+            status);
+
+        /*
+         * После ошибки передачи пробуем остановить CMD25.
+         * Первичную ошибку DMA не затираем результатом CMD12.
+         */
+        stop_status = sdio_ll_cmd(
+            SD_CMD12,
+            0,
+            SD_RESP_SHORT_CRC
+        );
+
+        if (stop_status != SD_OK) {
+            SEGGER_RTT_printf(0,
+                "SD WRITE: CMD12 after DMA error failed, status=%d\r\n",
+                stop_status);
+        }
+
         return status;
+    }
 
-    // CMD12 - отправляем карте завершение передачи
+    /* CMD12 - завершение передачи */
     status = sdio_ll_cmd(
         SD_CMD12,
         0,
         SD_RESP_SHORT_CRC
     );
 
-    if (status != SD_OK)
+    if (status != SD_OK) {
+        SEGGER_RTT_printf(0,
+            "SD WRITE: CMD12 failed, LBA=%lu count=%lu status=%d\r\n",
+            (unsigned long)lba,
+            (unsigned long)count,
+            status);
         return status;
-    /*
-     * Ждем, пока карта закончит внутреннее программирование.
-     */
+    }
+
+    /* Ждем завершения внутреннего программирования */
     status = sd_wait_ready(info);
 
-    if (status != SD_OK)
+    if (status != SD_OK) {
+        SEGGER_RTT_printf(0,
+            "SD WRITE: wait_ready failed, LBA=%lu count=%lu status=%d\r\n",
+            (unsigned long)lba,
+            (unsigned long)count,
+            status);
         return status;
+    }
 
     return SD_OK;
 }
@@ -293,6 +331,7 @@ sd_status_t sd_read_blocks(
 )
 {
     sd_status_t status;
+    sd_status_t stop_status;
     uint32_t length;
 
     if (buffer == NULL || count == 0)
@@ -304,50 +343,82 @@ sd_status_t sd_read_blocks(
 
     length = count * info->block_size;
 
-    /*
-     * CMD18 - READ_MULTIPLE_BLOCK
-     *
-     * Для SDHC/SDXC аргументом является LBA.
-     * CMD23 не используем.
-     */
+    /* CMD18 - READ_MULTIPLE_BLOCK */
     status = sdio_ll_cmd(
         SD_CMD18,
         lba,
         SD_RESP_SHORT_CRC
     );
 
-    if (status != SD_OK)
+    if (status != SD_OK) {
+        SEGGER_RTT_printf(0,
+            "SD READ: CMD18 failed, LBA=%lu count=%lu status=%d\r\n",
+            (unsigned long)lba,
+            (unsigned long)count,
+            status);
         return status;
+    }
 
     /*
-     * Читаем все блоки через FIFO.
-     * Даже если count == 1, используется тот же путь.
+     * Чтение SDIO FIFO -> RAM через DMA.
+     * length задаётся в байтах.
      */
-    status = sdio_ll_data_read(buffer, length);
+    status = sdio_ll_data_read_dma(buffer, length);
 
-    if (status != SD_OK)
+    if (status != SD_OK) {
+        SEGGER_RTT_printf(0,
+            "SD READ: DMA failed, LBA=%lu count=%lu length=%lu status=%d\r\n",
+            (unsigned long)lba,
+            (unsigned long)count,
+            (unsigned long)length,
+            status);
+
+        /*
+         * При ошибке передачи пытаемся остановить CMD18.
+         * Возвращаем исходную ошибку DMA.
+         */
+        stop_status = sdio_ll_cmd(
+            SD_CMD12,
+            0,
+            SD_RESP_SHORT_CRC
+        );
+
+        if (stop_status != SD_OK) {
+            SEGGER_RTT_printf(0,
+                "SD READ: CMD12 after DMA error failed, status=%d\r\n",
+                stop_status);
+        }
+
         return status;
+    }
 
-    /*
-     * Завершаем multi-block read.
-     */
+    /* Завершаем multi-block read */
     status = sdio_ll_cmd(
         SD_CMD12,
         0,
         SD_RESP_SHORT_CRC
     );
 
-    if (status != SD_OK)
+    if (status != SD_OK) {
+        SEGGER_RTT_printf(0,
+            "SD READ: CMD12 failed, LBA=%lu count=%lu status=%d\r\n",
+            (unsigned long)lba,
+            (unsigned long)count,
+            status);
         return status;
+    }
 
-    /*
-     * Проверяем, что карта вернулась в TRAN
-     * и готова к следующей операции.
-     */
+    /* Проверяем готовность карты */
     status = sd_wait_ready(info);
 
-    if (status != SD_OK)
+    if (status != SD_OK) {
+        SEGGER_RTT_printf(0,
+            "SD READ: wait_ready failed, LBA=%lu count=%lu status=%d\r\n",
+            (unsigned long)lba,
+            (unsigned long)count,
+            status);
         return status;
+    }
 
     return SD_OK;
 }

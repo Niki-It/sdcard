@@ -6,12 +6,10 @@
 #include "i2s2.h"
 
 #include "tusb.h"
-
 #include "sdio/sdio.h"
-
 #include "led_controller/led_controller.h"
 #include "led_controller/led_raw/led_raw.h"
-
+#include "storage/fs.h"
 
 
 Leds leds = {
@@ -41,15 +39,16 @@ bool next_led = false;
 uint32_t tick_counter = 1;
 
 sd_card_info_t card_info;
+void diskio_set_sd_card(sd_card_info_t *info);
 
 
 void periph_init();
-void fs_unit();
 
 int main(void) 
-{
+{   
+    SEGGER_RTT_printf(0, "V0.1  \r\n");
     periph_init();
-    fs_unit();
+    fs_unit(true);
     //SDIO_RunBenchmark();
     tusb_init();
 
@@ -83,73 +82,6 @@ void SysTick_Handler(void)
     tick_counter++;
 }
 
-static void SD_Test(void)
-{
-    sd_status_t status;
-
-    status = sd_init(&card_info);
-
-    if (status != SD_OK)
-    {
-        SEGGER_RTT_printf(0, "SD init error: %d\r\n", status);
-        return;
-    }
-
-
-    uint8_t write_buffer[512];
-    uint8_t read_buffer[512];
-
-    for (uint32_t i = 0; i < 512; i++)
-        write_buffer[i] = (uint8_t)i;
-
-    status = sd_write_blocks(
-        &card_info,
-        1,
-        write_buffer,
-        1
-    );
-
-    if (status != SD_OK)
-    {
-        SEGGER_RTT_printf(0, "SD WRITE ERROR: %d\r\n", status);
-        return;
-    }
-
-    SEGGER_RTT_printf(0, "SD WRITE OK\r\n");
-
-    status = sd_read_blocks(
-        &card_info,
-        1000,
-        read_buffer,
-        1
-    );
-
-    if (status != SD_OK)
-    {
-        SEGGER_RTT_printf(0, "SD READ ERROR: %d\r\n", status);
-        return;
-    }
-
-    SEGGER_RTT_printf(0, "SD READ OK\r\n");
-
-    for (uint32_t i = 0; i < 512; i++)
-    {
-        if (write_buffer[i] != read_buffer[i])
-        {
-            SEGGER_RTT_printf(
-                0,
-                "SD VERIFY ERROR: offset=%u W=%02X R=%02X\r\n",
-                i,
-                write_buffer[i],
-                read_buffer[i]
-            );
-
-            return;
-        }
-    }
-
-    SEGGER_RTT_printf(0, "SD VERIFY OK 6 MHZ\r\n");
-}
 void periph_init()
 {
     
@@ -172,10 +104,13 @@ void periph_init()
 
     LedController_PeriphInit();
 
-    SD_Test();
-
-    //SDIO_Periph_Init();
-    //SDIO_TestCard();
+    sd_status_t status = sd_init(&card_info);
+    if (status != SD_OK)
+    {
+        SEGGER_RTT_printf(0, "SD init error: %d\r\n", status);
+        return;
+    }
+    diskio_set_sd_card(&card_info);
 }
 
 

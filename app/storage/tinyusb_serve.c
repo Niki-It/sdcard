@@ -3,85 +3,211 @@
 #include <stdbool.h>
 
 #include "tusb.h"
-#include "ram_disk.h"
+#include <sdio/sdio.h>
 
+extern sd_card_info_t card_info;
 static bool ejected = false;
+#define MSC_SECTOR_SIZE 512U
 
-int32_t tud_msc_read10_cb
+static bool msc_range_valid
 (
+    uint32_t lba,
+    uint32_t offset,
+    uint32_t bufsize
+)
+{
+    if (offset >= MSC_SECTOR_SIZE) {
+        return false;
+    }
+
+    const uint64_t capacity =
+        (uint64_t)card_info.block_count * MSC_SECTOR_SIZE;
+
+    const uint64_t byte_pos =
+        (uint64_t)lba * MSC_SECTOR_SIZE + offset;
+
+    return byte_pos <= capacity &&
+           bufsize <= capacity - byte_pos;
+}
+
+int32_t tud_msc_read10_cb(
     uint8_t lun,
     uint32_t lba,
     uint32_t offset,
     void *buffer,
-    uint32_t bufsize
-)
+    uint32_t bufsize)
 {
-    if (lba >= RAM_DISK_SECTOR_COUNT ||
-        offset >= RAM_DISK_SECTOR_SIZE) {
+    uint8_t sector_buf[MSC_SECTOR_SIZE];
+    uint8_t *dst = buffer;
+    uint32_t remaining = bufsize;
+
+    if (buffer == NULL || bufsize == 0 ||
+        card_info.block_size != MSC_SECTOR_SIZE ||
+        !msc_range_valid(lba, offset, bufsize)) {
         tud_msc_set_sense(lun, SCSI_SENSE_ILLEGAL_REQUEST, 0x21, 0x00);
         return -1;
     }
 
-    // Общий адрес в RAM-диске. Буфер g_ram_disk непрерывный,
-    // поэтому передача может продолжаться через границу сектора.
-    const uint64_t byte_pos =
-        (uint64_t)lba * RAM_DISK_SECTOR_SIZE + offset;
+    /*
+     * 1. Частичный первый сектор.
+     * Если offset == 0, этот этап пропускаем.
+     */
+    if (offset != 0) {
+        uint32_t size = MSC_SECTOR_SIZE - offset;
 
-    const uint64_t disk_size =
-        (uint64_t)RAM_DISK_SECTOR_COUNT * RAM_DISK_SECTOR_SIZE;
+        if (size > remaining) {
+            size = remaining;
+        }
 
-    if (byte_pos > disk_size || bufsize > disk_size - byte_pos) 
-    {
-        tud_msc_set_sense(lun, SCSI_SENSE_ILLEGAL_REQUEST, 0x21, 0x00);
-        return -1;
+        if (sd_read_blocks(&card_info, lba,
+                           sector_buf, 1) != SD_OK) {
+            tud_msc_set_sense(lun, SCSI_SENSE_MEDIUM_ERROR, 0x11, 0x00);
+            return -1;
+        }
+
+        memcpy(dst, &sector_buf[offset], size);
+
+        dst += size;
+        remaining -= size;
+        lba++;
     }
 
-    memcpy(buffer, &g_ram_disk[byte_pos], bufsize);
+    /*
+     * 2. Полные секторы.
+     * Читаем сразу пачкой в буфер TinyUSB.
+     */
+    uint32_t full_blocks = remaining / MSC_SECTOR_SIZE;
+
+    if (full_blocks > 0) {
+        if (sd_read_blocks(&card_info, lba,
+                           dst, full_blocks) != SD_OK) {
+            tud_msc_set_sense(lun, SCSI_SENSE_MEDIUM_ERROR, 0x11, 0x00);
+            return -1;
+        }
+
+        uint32_t size = full_blocks * MSC_SECTOR_SIZE;
+
+        dst += size;
+        remaining -= size;
+        lba += full_blocks;
+    }
+
+    /*
+     * 3. Частичный последний сектор.
+     */
+    if (remaining > 0) {
+        if (sd_read_blocks(&card_info, lba,
+                           sector_buf, 1) != SD_OK) {
+            tud_msc_set_sense(lun, SCSI_SENSE_MEDIUM_ERROR, 0x11, 0x00);
+            return -1;
+        }
+
+        memcpy(dst, sector_buf, remaining);
+        dst += remaining;
+    }
 
     return (int32_t)bufsize;
 }
-int32_t tud_msc_write10_cb
-(
+
+int32_t tud_msc_write10_cb(
     uint8_t lun,
     uint32_t lba,
     uint32_t offset,
     uint8_t *buffer,
-    uint32_t bufsize
-)
+    uint32_t bufsize)
 {
-    if (lba >= RAM_DISK_SECTOR_COUNT ||
-        offset >= RAM_DISK_SECTOR_SIZE) {
+    uint8_t sector_buf[MSC_SECTOR_SIZE];
+    const uint8_t *src = buffer;
+    uint32_t remaining = bufsize;
+
+    if (buffer == NULL || bufsize == 0 ||
+        card_info.block_size != MSC_SECTOR_SIZE ||
+        !msc_range_valid(lba, offset, bufsize)) {
         tud_msc_set_sense(lun, SCSI_SENSE_ILLEGAL_REQUEST, 0x21, 0x00);
         return -1;
     }
 
-    const uint64_t byte_pos =
-        (uint64_t)lba * RAM_DISK_SECTOR_SIZE + offset;
+    /*
+     * 1. Частичный первый сектор.
+     * Если offset == 0, этот этап пропускаем.
+     */
+    if (offset != 0) {
+        uint32_t size = MSC_SECTOR_SIZE - offset;
 
-    const uint64_t disk_size =
-        (uint64_t)RAM_DISK_SECTOR_COUNT * RAM_DISK_SECTOR_SIZE;
+        if (size > remaining) {
+            size = remaining;
+        }
 
-    if (byte_pos > disk_size || bufsize > disk_size - byte_pos) {
-        tud_msc_set_sense(lun, SCSI_SENSE_ILLEGAL_REQUEST, 0x21, 0x00);
-        return -1;
+        if (sd_read_blocks(&card_info, lba,
+                           sector_buf, 1) != SD_OK) {
+            tud_msc_set_sense(lun, SCSI_SENSE_MEDIUM_ERROR, 0x11, 0x00);
+            return -1;
+        }
+
+        memcpy(&sector_buf[offset], src, size);
+
+        if (sd_write_blocks(&card_info, lba,
+                            sector_buf, 1) != SD_OK) {
+            tud_msc_set_sense(lun, SCSI_SENSE_MEDIUM_ERROR, 0x0C, 0x02);
+            return -1;
+        }
+
+        src += size;
+        remaining -= size;
+        lba++;
     }
 
-    memcpy(&g_ram_disk[byte_pos], buffer, bufsize);
+    /*
+     * 2. Полные секторы.
+     * Записываем сразу пачкой из буфера TinyUSB.
+     */
+    uint32_t full_blocks = remaining / MSC_SECTOR_SIZE;
+
+    if (full_blocks > 0) {
+        if (sd_write_blocks(&card_info, lba,
+                            src, full_blocks) != SD_OK) {
+            tud_msc_set_sense(lun, SCSI_SENSE_MEDIUM_ERROR, 0x0C, 0x02);
+            return -1;
+        }
+
+        uint32_t size = full_blocks * MSC_SECTOR_SIZE;
+
+        src += size;
+        remaining -= size;
+        lba += full_blocks;
+    }
+
+    /*
+     * 3. Частичный последний сектор.
+     */
+    if (remaining > 0) {
+        if (sd_read_blocks(&card_info, lba,
+                           sector_buf, 1) != SD_OK) {
+            tud_msc_set_sense(lun, SCSI_SENSE_MEDIUM_ERROR, 0x11, 0x00);
+            return -1;
+        }
+
+        memcpy(sector_buf, src, remaining);
+
+        if (sd_write_blocks(&card_info, lba,
+                            sector_buf, 1) != SD_OK) {
+            tud_msc_set_sense(lun, SCSI_SENSE_MEDIUM_ERROR, 0x0C, 0x02);
+            return -1;
+        }
+    }
 
     return (int32_t)bufsize;
 }
 
-void tud_msc_capacity_cb
-(
+void tud_msc_capacity_cb(
     uint8_t lun,
     uint32_t *block_count,
-    uint16_t *block_size
-)
+    uint16_t *block_size)
 {
     (void)lun;
 
-    *block_count = RAM_DISK_SECTOR_COUNT;
-    *block_size = RAM_DISK_SECTOR_SIZE;
+    *block_count = card_info.block_count;
+    *block_size = card_info.block_size;
 }
 
 // прочие callbacks
@@ -96,7 +222,7 @@ void tud_msc_inquiry_cb
     (void)lun;
 
     const char vid[] = "STM32";
-    const char pid[] = "RAM Disk";
+    const char pid[] = "SD CARD";
     const char rev[] = "1.0";
 
     memcpy(vendor_id, vid, sizeof(vid) - 1);

@@ -28,10 +28,10 @@ typedef struct
 
 typedef enum
 {
-    NoEvent,
-    Short,
-    DoubleShort,
-    Long,
+    NO_EVENT,
+    SHORT_EVENT,
+    DOUBLE_SHORT,
+    LONG_EVENT,
 } LedEvent;
 typedef struct
 {
@@ -48,7 +48,14 @@ typedef struct
 {
     // 1 - готов, 0 не готов
     uint8_t ready;
-    ButtonEvents button_events;
+    LedEvent VD1;
+    LedEvent VD2;
+    LedEvent VD3;
+    LedEvent VD4;
+    LedEvent VD5;
+    LedEvent VD6;
+    LedEvent VD7;
+    LedEvent VD8;
 } ButtonStatus;
 
 // ---------------- Core логика ---------------------------

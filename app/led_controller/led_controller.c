@@ -18,7 +18,14 @@ ButtonStatus poll_button_events()
     {
         is_response_ready = 0;
         button_status.ready = 1;
-        button_status.button_events = button_events;
+        button_status.VD1 = button_events.VD1;
+        button_status.VD2 = button_events.VD2;
+        button_status.VD3 = button_events.VD3;
+        button_status.VD4 = button_events.VD4;
+        button_status.VD5 = button_events.VD5;
+        button_status.VD6 = button_events.VD6;
+        button_status.VD7 = button_events.VD7;
+        button_status.VD8 = button_events.VD8;
     }
 
     return button_status;

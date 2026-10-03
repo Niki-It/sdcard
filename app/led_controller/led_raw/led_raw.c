@@ -211,7 +211,7 @@ void TIM6_Init(void)
 
     TIM_InitStruct.Prescaler = 8399;
     TIM_InitStruct.CounterMode = LL_TIM_COUNTERMODE_UP;
-    TIM_InitStruct.Autoreload = 99;
+    TIM_InitStruct.Autoreload = 999;
     TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
 
     LL_TIM_Init(TIM6, &TIM_InitStruct);

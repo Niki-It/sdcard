@@ -37,6 +37,8 @@ Leds leds2 = {
 };
 bool next_led = false;
 uint32_t tick_counter = 1;
+uint32_t message_counter = 0;
+uint32_t send_counter = 0;
 
 sd_card_info_t card_info;
 void diskio_set_sd_card(sd_card_info_t *info);
@@ -46,17 +48,24 @@ void periph_init();
 
 int main(void) 
 {   
-    SEGGER_RTT_printf(0, "V0.1  \r\n");
     periph_init();
-    fs_unit(true);
+    //SDIO_TestCard();
     //SDIO_RunBenchmark();
-    tusb_init();
-
+    //tusb_init();
+    ButtonStatus button_status;
     while (1) 
     {
-        tud_task();
+        button_status = poll_button_events();
+        if(button_status.ready == 1)
+        {
+            if(button_status.VD1 == DOUBLE_SHORT)
+            {
+                message_counter++;
+            }
+        }
     }
 }
+
 void tim6_handler(void)
 {
     send_SetLedState(USART2);
@@ -76,8 +85,8 @@ void SysTick_Handler(void)
 {
     if(tick_counter % 1000 == 0)
     {
-        // SEGGER_RTT_printf(0, "messages received: %u \r\n", message_counter);
-        // tick_counter = 0;
+        SEGGER_RTT_printf(0, "messages received: %u \r\n", message_counter);
+        tick_counter = 0;
     }
     tick_counter++;
 }

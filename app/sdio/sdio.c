@@ -264,7 +264,7 @@ sd_status_t sd_write_blocks(
         return status;
     }
 
-    status = sdio_ll_data_write_dma(buffer, length);
+    //status = sdio_ll_data_write_dma(buffer, length);
 
     if (status != SD_OK) {
         SEGGER_RTT_printf(0,
@@ -363,7 +363,7 @@ sd_status_t sd_read_blocks(
      * Чтение SDIO FIFO -> RAM через DMA.
      * length задаётся в байтах.
      */
-    status = sdio_ll_data_read_dma(buffer, length);
+    //status = sdio_ll_data_read_dma(buffer, length);
 
     if (status != SD_OK) {
         SEGGER_RTT_printf(0,

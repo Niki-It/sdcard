@@ -12,30 +12,6 @@
 #include "led_controller/led_raw/led_raw.h"
 #include "storage/fs.h"
 
-
-static Leds leds = {
-    .VD1 = 1,
-    .VD2 = 1,
-    .VD3 = 1,
-    .VD4 = 1,
-    .VD5 = 1,
-    .VD6 = 1,
-    .VD7 = 1,
-    .VD8 = 1,
-    .VD9 = 1
-};
-
-static Leds leds2 = {
-    .VD1 = 0,
-    .VD2 = 0,
-    .VD3 = 0,
-    .VD4 = 0,
-    .VD5 = 0,
-    .VD6 = 0,
-    .VD7 = 0,
-    .VD8 = 0,
-    .VD9 = 0
-};
 bool next_led = false;
 uint32_t tick_counter = 1;
 uint32_t message_counter = 0;

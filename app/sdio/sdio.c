@@ -488,7 +488,7 @@ uint32_t SDIO_TestCard(void)
         return (uint32_t)SD_ERR_IO;
     }
 
-    for (uint32_t lba = 0; lba < 1000U; lba++)
+    for (uint32_t lba = 0; lba < 100000U; lba++)
     {
         status = sd_write_blocks(&info, lba, test_buffer, 1U);
 

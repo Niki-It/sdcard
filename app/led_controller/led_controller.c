@@ -88,7 +88,7 @@ SetLedStateCommand formSetLedStateCommand()
     return cmd;
 }
 
-static Leds leds = {
+static Leds leds1 = {
     .VD1 = 1,
     .VD2 = 1,
     .VD3 = 1,
@@ -126,10 +126,10 @@ uint8_t can_send_command()
 __attribute__((weak))
 void tim6_handler(void)
 {
-    is_send_command = true;
+    is_send_command = 1;
     if(next_led)
     {
-        set_leds_state(leds);
+        set_leds_state(leds1);
         next_led = false;
     }
     else

@@ -13,8 +13,30 @@
 #include "storage/fs.h"
 
 
+static Leds leds = {
+    .VD1 = 1,
+    .VD2 = 1,
+    .VD3 = 1,
+    .VD4 = 1,
+    .VD5 = 1,
+    .VD6 = 1,
+    .VD7 = 1,
+    .VD8 = 1,
+    .VD9 = 1
+};
 
-
+static Leds leds2 = {
+    .VD1 = 0,
+    .VD2 = 0,
+    .VD3 = 0,
+    .VD4 = 0,
+    .VD5 = 0,
+    .VD6 = 0,
+    .VD7 = 0,
+    .VD8 = 0,
+    .VD9 = 0
+};
+bool next_led = false;
 uint32_t tick_counter = 1;
 uint32_t message_counter = 0;
 uint32_t send_counter = 0;
@@ -27,30 +49,24 @@ void periph_init();
 int main(void) 
 {   
     periph_init();
-    fs_unit(true);
-    //SDIO_RunBenchmark();
+    //SDIO_TestCard();
     tusb_init();
     ButtonStatus button_status;
     while (1) 
     {
         tud_task();
         button_status = poll_button_events();
-        if(button_status.ready)
+        if(button_status.ready == 1)
         {
             message_counter++;
-            if(button_status.VD1 == SHORT_EVENT)
-            {
-                SEGGER_RTT_printf(0, "vd1 short event \r\n");
-            }
         }
-
         if(can_send_command())
         {
             send_SetLedState(USART2);
         }
     }
+    
 }
-
 
 void SysTick_Handler(void)
 {
@@ -60,6 +76,7 @@ void SysTick_Handler(void)
         tick_counter = 0;
     }
     tick_counter++;
+
 }
 
 void periph_init()

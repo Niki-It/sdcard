@@ -262,6 +262,7 @@ int32_t tud_msc_scsi_cb
     return -1;
 }
 
+//extern uint32_t reconnect_timer;
 bool tud_msc_start_stop_cb
 (
     uint8_t lun,
@@ -274,15 +275,18 @@ bool tud_msc_start_stop_cb
     (void)power_condition;
 
     if (load_eject) {
-        // Host попросил извлечь диск.
-        if (!start) {
-            ejected = true;
-        }
-        // Host снова загрузил диск.
-        else {
-            ejected = false;
-        }
+        ejected = !start;
     }
 
     return true;
+}
+
+void tud_mount_cb(void)
+{
+    ejected = false;
+}
+
+void tud_umount_cb(void)
+{
+    // ничего
 }

@@ -4,6 +4,7 @@
 #include "SEGGER_RTT.h"
 #include "stdbool.h"
 #include "sdio.h"
+#include "string.h"
 
 // ------------------------ Новый API ----------------------------
 #define SD_OCR_BUSY_BIT         (1U << 31)    // Card Power Up Status (1 = готова)
@@ -164,9 +165,6 @@ sd_status_t sd_init(sd_card_info_t *info)
     // Переключаем SDIO STM32 в 4-bit
     sdio_ll_set_bus_width(SD_BUS_4BIT);
 
-    if (sdio_ll_dma_init() != SD_OK)
-        return SD_ERR_DMA;
-
     return SD_OK;
 }
 
@@ -264,11 +262,11 @@ sd_status_t sd_write_blocks(
         return status;
     }
 
-    //status = sdio_ll_data_write_dma(buffer, length);
+    status = sdio_ll_data_write(buffer, length);
 
     if (status != SD_OK) {
         SEGGER_RTT_printf(0,
-            "SD WRITE: DMA failed, LBA=%lu count=%lu length=%lu status=%d\r\n",
+            "SD WRITE: failed, LBA=%lu count=%lu length=%lu status=%d\r\n",
             (unsigned long)lba,
             (unsigned long)count,
             (unsigned long)length,
@@ -363,7 +361,7 @@ sd_status_t sd_read_blocks(
      * Чтение SDIO FIFO -> RAM через DMA.
      * length задаётся в байтах.
      */
-    //status = sdio_ll_data_read_dma(buffer, length);
+    status = sdio_ll_data_read(buffer, length);
 
     if (status != SD_OK) {
         SEGGER_RTT_printf(0,
@@ -451,4 +449,68 @@ static sd_status_t sd_wait_ready(sd_card_info_t *info)
             return SD_OK;
         }
     }
+}
+
+uint32_t SDIO_TestCard(void)
+{
+    sd_card_info_t info;
+    sd_status_t status;
+
+    static uint8_t test_buffer[512];
+
+    /* Заполняем буфер нулями */
+    memset(test_buffer, 0, sizeof(test_buffer));
+
+    SEGGER_RTT_printf(0, "SD TEST: start, sectors 0..999\r\n");
+
+    status = sd_init(&info);
+    if (status != SD_OK)
+    {
+        SEGGER_RTT_printf(0,
+            "SD TEST: init failed, status=%d\r\n",
+            status);
+        return (uint32_t)status;
+    }
+
+    if (info.block_size != sizeof(test_buffer))
+    {
+        SEGGER_RTT_printf(0,
+            "SD TEST: unexpected block size=%lu\r\n",
+            (unsigned long)info.block_size);
+        return (uint32_t)SD_ERR_IO;
+    }
+
+    if (info.block_count < 1000U)
+    {
+        SEGGER_RTT_printf(0,
+            "SD TEST: card too small, blocks=%lu\r\n",
+            (unsigned long)info.block_count);
+        return (uint32_t)SD_ERR_IO;
+    }
+
+    for (uint32_t lba = 0; lba < 1000U; lba++)
+    {
+        status = sd_write_blocks(&info, lba, test_buffer, 1U);
+
+        if (status != SD_OK)
+        {
+            SEGGER_RTT_printf(0,
+                "SD TEST: WRITE FAILED at LBA=%lu, status=%d\r\n",
+                (unsigned long)lba,
+                status);
+
+            return (uint32_t)status;
+        }
+
+        if ((lba % 100U) == 0U)
+        {
+            SEGGER_RTT_printf(0,
+                "SD TEST: written %lu/1000\r\n",
+                (unsigned long)(lba + 1U));
+        }
+    }
+
+    SEGGER_RTT_printf(0, "SD TEST: all 1000 blocks written OK\r\n");
+
+    return (uint32_t)SD_OK;
 }

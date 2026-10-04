@@ -88,3 +88,53 @@ SetLedStateCommand formSetLedStateCommand()
     return cmd;
 }
 
+static Leds leds = {
+    .VD1 = 1,
+    .VD2 = 1,
+    .VD3 = 1,
+    .VD4 = 1,
+    .VD5 = 1,
+    .VD6 = 1,
+    .VD7 = 1,
+    .VD8 = 1,
+    .VD9 = 1
+};
+
+static Leds leds2 = {
+    .VD1 = 0,
+    .VD2 = 0,
+    .VD3 = 0,
+    .VD4 = 0,
+    .VD5 = 0,
+    .VD6 = 0,
+    .VD7 = 0,
+    .VD8 = 0,
+    .VD9 = 0
+};
+static bool next_led = false;
+static volatile uint8_t is_send_command; // Флаг отправки команды по таймеру
+
+uint8_t can_send_command()
+{
+    if(is_send_command)
+    {
+        is_send_command = 0;
+        return 1;
+    }
+    return 0;
+}
+__attribute__((weak))
+void tim6_handler(void)
+{
+    is_send_command = true;
+    if(next_led)
+    {
+        set_leds_state(leds);
+        next_led = false;
+    }
+    else
+    {
+        set_leds_state(leds2);
+        next_led = true;
+    }
+}

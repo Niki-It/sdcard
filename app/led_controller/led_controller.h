@@ -64,6 +64,7 @@ void set_leds_state(Leds leds);
 
 void send_SetLedState(USART_TypeDef *USARTx);
 extern void tim6_handler();
+uint8_t can_send_command();
 // ------ Вспомогательные функции ---------------------
 void LedController_PeriphInit();
 void write_events(RawResponce response);

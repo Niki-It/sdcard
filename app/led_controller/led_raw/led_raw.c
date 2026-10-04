@@ -103,9 +103,7 @@ void inc_frame_number()
     }
 }
 
-__attribute__((weak))
-void tim6_handler(void)
-{}
+
 void TIM6_DAC_IRQHandler(void)
 {
     if (LL_TIM_IsActiveFlag_UPDATE(TIM6))

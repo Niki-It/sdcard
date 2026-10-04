@@ -80,7 +80,7 @@ extern "C" {
 // MSC Buffer size. 
 // ВАЖНО: Для Full-Speed максимальный размер Bulk-пакета равен 64 байта. 
 // Значение 512 предназначено только для High-Speed и может вызвать ошибки или перерасход памяти на F405.
-#define CFG_TUD_MSC_EP_BUFSIZE      64
+#define CFG_TUD_MSC_EP_BUFSIZE      4096
 
 #ifdef __cplusplus
 }

@@ -5,6 +5,7 @@
 #include "mux.h"
 #include "i2s2.h"
 
+
 #include "tusb.h"
 #include "sdio/sdio.h"
 #include "led_controller/led_controller.h"
@@ -12,30 +13,8 @@
 #include "storage/fs.h"
 
 
-Leds leds = {
-    .VD1 = 1,
-    .VD2 = 1,
-    .VD3 = 1,
-    .VD4 = 1,
-    .VD5 = 1,
-    .VD6 = 1,
-    .VD7 = 1,
-    .VD8 = 1,
-    .VD9 = 1
-};
 
-Leds leds2 = {
-    .VD1 = 0,
-    .VD2 = 0,
-    .VD3 = 0,
-    .VD4 = 0,
-    .VD5 = 0,
-    .VD6 = 0,
-    .VD7 = 0,
-    .VD8 = 0,
-    .VD9 = 0
-};
-bool next_led = false;
+
 uint32_t tick_counter = 1;
 uint32_t message_counter = 0;
 uint32_t send_counter = 0;
@@ -45,42 +24,34 @@ void diskio_set_sd_card(sd_card_info_t *info);
 
 
 void periph_init();
-
 int main(void) 
 {   
     periph_init();
-    //SDIO_TestCard();
+    fs_unit(true);
     //SDIO_RunBenchmark();
-    //tusb_init();
+    tusb_init();
     ButtonStatus button_status;
     while (1) 
     {
+        tud_task();
         button_status = poll_button_events();
-        if(button_status.ready == 1)
+        if(button_status.ready)
         {
-            if(button_status.VD1 == DOUBLE_SHORT)
+            message_counter++;
+            if(button_status.VD1 == SHORT_EVENT)
             {
-                message_counter++;
+                SEGGER_RTT_printf(0, "vd1 short event \r\n");
             }
+        }
+
+        if(can_send_command())
+        {
+            send_SetLedState(USART2);
         }
     }
 }
 
-void tim6_handler(void)
-{
-    send_SetLedState(USART2);
 
-    if(next_led)
-    {
-        set_leds_state(leds);
-        next_led = false;
-    }
-    else
-    {
-        set_leds_state(leds2);
-        next_led = true;
-    }
-}
 void SysTick_Handler(void)
 {
     if(tick_counter % 1000 == 0)

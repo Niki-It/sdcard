@@ -1,11 +1,8 @@
 #pragma once
 #include "sdio_ll.h"
 
-// ------------------ Легаси API ------------------------------
 
-void SDIO_Periph_Init(void);
 uint32_t SDIO_TestCard(void);
-void SDIO_RunBenchmark();
 
 // ---------------- Новый API ---------------------------- 
 

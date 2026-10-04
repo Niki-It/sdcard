@@ -204,7 +204,7 @@ sd_status_t sdio_ll_set_clock(sdio_clock_t clock)
 
         case SD_CLK_WORK:
             /* 48 MHz / (0 + 2) = 24 MHz */
-            clkdiv = 118U; 
+            clkdiv = 6U; 
             break;
 
         default:
@@ -583,7 +583,7 @@ sd_status_t sdio_ll_dma_init(void)
     );
     LL_DMA_DisableFifoMode(DMA2, SDIO_DMA_TX_STREAM);
 
-    /* SDIO is the flow controller */
+
     /* RX: SDIO FIFO -> RAM */
 
     /* Burst */

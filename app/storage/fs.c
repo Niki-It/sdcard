@@ -12,7 +12,7 @@ FRESULT fs_unit(bool allow_format)
     FRESULT res = f_mount(&fs, "", 1);
 
     if (res == FR_OK) {
-        //return FR_OK;
+        return FR_OK;
     }
 
     /*
@@ -20,7 +20,7 @@ FRESULT fs_unit(bool allow_format)
      * Другие ошибки не считаем доказательством отсутствия ФС.
      */
     if (res != FR_NO_FILESYSTEM || !allow_format) {
-        //return res;
+        return res;
     }
 
     /* Снимаем регистрацию файловой системы перед форматированием. */

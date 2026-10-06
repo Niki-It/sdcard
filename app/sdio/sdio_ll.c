@@ -543,12 +543,6 @@ sd_status_t sdio_ll_dma_init(void)
         LL_DMA_PRIORITY_VERYHIGH
     );
 
-    /* Один запуск DMA = одна операция чтения */
-    LL_DMA_SetMode(
-        DMA2,
-        SDIO_DMA_RX_STREAM,
-        LL_DMA_MODE_NORMAL
-    );
 
     /* SDIO FIFO address не изменяется */
     LL_DMA_SetPeriphIncMode(
@@ -576,16 +570,17 @@ sd_status_t sdio_ll_dma_init(void)
         SDIO_DMA_RX_STREAM,
         LL_DMA_MDATAALIGN_WORD
     );
-
-    /*
-     * DMA FIFO OFF.
-     * Дополнительный FIFO самого DMA нам пока не нужен.
-     */
-    LL_DMA_DisableFifoMode(
+    LL_DMA_EnableFifoMode(
         DMA2,
         SDIO_DMA_RX_STREAM
     );
 
+    LL_DMA_SetMode(
+        DMA2,
+        SDIO_DMA_RX_STREAM,
+        LL_DMA_MODE_PFCTRL 
+    );
+    
     /*
      * Burst = SINGLE.
      * При FIFO OFF burst также не используем.
@@ -593,13 +588,13 @@ sd_status_t sdio_ll_dma_init(void)
     LL_DMA_SetPeriphBurstxfer(
         DMA2,
         SDIO_DMA_RX_STREAM,
-        LL_DMA_PBURST_SINGLE
+        LL_DMA_PBURST_INC4
     );
 
     LL_DMA_SetMemoryBurstxfer(
         DMA2,
         SDIO_DMA_RX_STREAM,
-        LL_DMA_MBURST_SINGLE
+        LL_DMA_MBURST_INC4
     );
 
 
@@ -691,4 +686,179 @@ sd_status_t sdio_ll_dma_init(void)
 
 
     return SD_OK;
+}
+
+sd_status_t sdio_ll_prepare_dma_rx(
+    uint8_t *buffer,
+    uint32_t length
+)
+{
+    uint32_t words;
+
+    if (buffer == NULL || length == 0)
+        return SD_ERR_IO;
+
+    if ((length & 0x3U) != 0)
+        return SD_ERR_IO;
+
+    words = length / 4U;
+
+    /* На всякий случай поток должен быть выключен */
+    LL_DMA_DisableStream(DMA2, SDIO_DMA_RX_STREAM);
+
+    while (LL_DMA_IsEnabledStream(DMA2, SDIO_DMA_RX_STREAM)){}
+
+    /* Очистить старые флаги */
+    LL_DMA_ClearFlag_FE3(DMA2);
+    LL_DMA_ClearFlag_DME3(DMA2);
+    LL_DMA_ClearFlag_TE3(DMA2);
+    LL_DMA_ClearFlag_HT3(DMA2);
+    LL_DMA_ClearFlag_TC3(DMA2);
+
+    /*
+     * SDIO FIFO -> RAM
+     */
+    LL_DMA_SetPeriphAddress(
+        DMA2,
+        SDIO_DMA_RX_STREAM,
+        (uint32_t)&SDIO->FIFO
+    );
+
+    LL_DMA_SetMemoryAddress(
+        DMA2,
+        SDIO_DMA_RX_STREAM,
+        (uint32_t)buffer
+    );
+
+    LL_DMA_SetDataLength(
+        DMA2,
+        SDIO_DMA_RX_STREAM,
+        words
+    );
+
+    /*
+     * Теперь разрешаем DMA-запросы SDIO.
+     */
+    LL_DMA_EnableStream(DMA2, SDIO_DMA_RX_STREAM);
+    /*
+     * SDIO data path
+     */
+    SDIO->ICR =
+        SDIO_ICR_DBCKENDC  |
+        SDIO_ICR_DATAENDC  |
+        SDIO_ICR_RXOVERRC  |
+        SDIO_ICR_DTIMEOUTC |
+        SDIO_ICR_DCRCFAILC;
+
+    SDIO->DTIMER = 0xFFFFFFFFU;
+    SDIO->DLEN = length;
+
+    SDIO->DCTRL =
+        (9U << 4) |             /* DBLOCKSIZE = 512 bytes */
+        SDIO_DCTRL_DTDIR   |    /* card -> SDIO FIFO */
+        SDIO_DCTRL_DMAEN   |
+        SDIO_DCTRL_DTEN;
+
+    return SD_OK;
+}
+static sd_status_t sdio_ll_check_rx_status(void)
+{
+    uint32_t sta = SDIO->STA;
+
+    if (sta & SDIO_STA_RXOVERR)
+    {
+        LL_DMA_DisableStream(DMA2, SDIO_DMA_RX_STREAM);
+        SDIO->ICR = SDIO_ICR_RXOVERRC;
+        return SD_ERR_IO;
+    }
+
+    if (sta & SDIO_STA_DTIMEOUT)
+    {
+        LL_DMA_DisableStream(DMA2, SDIO_DMA_RX_STREAM);
+        SDIO->ICR = SDIO_ICR_DTIMEOUTC;
+        return SD_ERR_TIMEOUT;
+    }
+
+    if (sta & SDIO_STA_DCRCFAIL)
+    {
+        LL_DMA_DisableStream(DMA2, SDIO_DMA_RX_STREAM);
+        SDIO->ICR = SDIO_ICR_DCRCFAILC;
+        return SD_ERR_DATA_CRC;
+    }
+
+    return SD_OK;
+}
+uint32_t debug_counter = 0;
+sd_status_t sdio_ll_wait_dma_rx(void)
+{
+    sd_status_t status;
+    uint32_t sta;
+
+    while (1)
+    {
+        if (++debug_counter >= 1000000U)
+        {
+            SEGGER_RTT_printf(0,
+                "DMA HANG: STA=%08lX NDTR=%lu EN=%lu TC=%lu RXOVERR=%lu DTIMEOUT=%lu DCRCFAIL=%lu\r\n",
+                (unsigned long)SDIO->STA,
+                (unsigned long)DMA2_Stream3->NDTR,
+                (unsigned long)LL_DMA_IsEnabledStream(DMA2, SDIO_DMA_RX_STREAM),
+                (unsigned long)LL_DMA_IsActiveFlag_TC3(DMA2),
+                (unsigned long)((SDIO->STA & SDIO_STA_RXOVERR) != 0),
+                (unsigned long)((SDIO->STA & SDIO_STA_DTIMEOUT) != 0),
+                (unsigned long)((SDIO->STA & SDIO_STA_DCRCFAIL) != 0));
+
+            debug_counter = 0;
+        }
+        /* Проверяем ошибки SDIO */
+        status = sdio_ll_check_rx_status();
+
+        if (status != SD_OK)
+            return status;
+
+
+        /* Проверяем ошибки DMA */
+        if (LL_DMA_IsActiveFlag_TE3(DMA2) ||
+            LL_DMA_IsActiveFlag_DME3(DMA2) ||
+            LL_DMA_IsActiveFlag_FE3(DMA2))
+        {
+            LL_DMA_DisableStream(DMA2, SDIO_DMA_RX_STREAM);
+
+            LL_DMA_ClearFlag_TE3(DMA2);
+            LL_DMA_ClearFlag_DME3(DMA2);
+            LL_DMA_ClearFlag_FE3(DMA2);
+
+            return SD_ERR_IO;
+        }
+
+
+        /* DMA закончил перенос */
+        if (LL_DMA_IsActiveFlag_TC3(DMA2))
+        {
+            LL_DMA_DisableStream(DMA2, SDIO_DMA_RX_STREAM);
+
+            while (LL_DMA_IsEnabledStream(DMA2, SDIO_DMA_RX_STREAM))
+            {
+            }
+
+            LL_DMA_ClearFlag_TC3(DMA2);
+
+            /*
+             * DMA закончил, теперь проверяем
+             * финальное состояние SDIO.
+             */
+            status = sdio_ll_check_rx_status();
+
+            if (status != SD_OK)
+                return status;
+
+            sta = SDIO->STA;
+
+            if (sta & SDIO_STA_DBCKEND)
+            {
+                SDIO->ICR = SDIO_ICR_DBCKENDC;
+                return SD_OK;
+            }
+        }
+    }
 }

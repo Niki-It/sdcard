@@ -164,6 +164,7 @@ sd_status_t sd_init(sd_card_info_t *info)
 
     // Переключаем SDIO STM32 в 4-bit
     sdio_ll_set_bus_width(SD_BUS_4BIT);
+    sdio_ll_dma_init();
 
     return SD_OK;
 }
@@ -361,9 +362,13 @@ sd_status_t sd_read_blocks(
      * Чтение SDIO FIFO -> RAM через DMA.
      * length задаётся в байтах.
      */
-    status = sdio_ll_data_read(buffer, length);
+    status = sdio_ll_prepare_dma_rx(buffer, length);
+
+    if (status == SD_OK)
+        status = sdio_ll_wait_dma_rx();
 
     if (status != SD_OK) {
+
         SEGGER_RTT_printf(0,
             "SD READ: DMA failed, LBA=%lu count=%lu length=%lu status=%d\r\n",
             (unsigned long)lba,
@@ -372,8 +377,7 @@ sd_status_t sd_read_blocks(
             status);
 
         /*
-         * При ошибке передачи пытаемся остановить CMD18.
-         * Возвращаем исходную ошибку DMA.
+         * При ошибке пытаемся остановить CMD18.
          */
         stop_status = sdio_ll_cmd(
             SD_CMD12,

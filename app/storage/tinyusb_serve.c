@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "SEGGER_RTT.h"
 
 #include "tusb.h"
 #include <sdio/sdio.h>

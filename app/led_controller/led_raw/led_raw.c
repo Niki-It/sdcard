@@ -91,7 +91,22 @@ void usart2_handler(void)
 }
 void uart4_handler()
 {
-    // TODO: доделать
+    if (LL_USART_IsActiveFlag_RXNE(UART4))
+    {
+        uint8_t byte = LL_USART_ReceiveData8(UART4);
+
+        if (echo_skip > 0)
+        {
+            echo_skip--;
+            return; 
+        }
+        process_rx_byte(byte);
+    }
+
+    if (LL_USART_IsActiveFlag_ORE(UART4))
+    {
+        LL_USART_ClearFlag_ORE(UART4);
+    }
 }
 
 void inc_frame_number()

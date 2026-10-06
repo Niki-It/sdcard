@@ -85,4 +85,8 @@ sd_status_t sdio_ll_prepare_dma_rx(
     uint8_t *buffer,
     uint32_t length
 );
+sd_status_t sdio_ll_prepare_dma_tx(
+    const uint8_t *buffer,
+    uint32_t length
+);
 sd_status_t sdio_ll_wait_dma_rx(void);

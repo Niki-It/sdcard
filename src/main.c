@@ -25,6 +25,7 @@ void periph_init();
 int main(void) 
 {   
     periph_init();
+    SDIO_TestCardRead();
     //SDIO_TestCard();
     tusb_init();
     ButtonStatus button_status;
@@ -51,7 +52,7 @@ void SysTick_Handler(void)
 {
     if(tick_counter % 1000 == 0)
     {
-        SEGGER_RTT_printf(0, "messages received: %u \r\n", message_counter);
+        //SEGGER_RTT_printf(0, "messages received: %u \r\n", message_counter);
         tick_counter = 0;
     }
     tick_counter++;
@@ -80,13 +81,13 @@ void periph_init()
 
     LedController_PeriphInit();
 
-    sd_status_t status = sd_init(&card_info);
-    if (status != SD_OK)
-    {
-        SEGGER_RTT_printf(0, "SD init error: %d\r\n", status);
-        return;
-    }
-    diskio_set_sd_card(&card_info);
+    // sd_status_t status = sd_init(&card_info);
+    // if (status != SD_OK)
+    // {
+    //     SEGGER_RTT_printf(0, "SD init error: %d\r\n", status);
+    //     return;
+    // }
+    // diskio_set_sd_card(&card_info);
 }
 
 

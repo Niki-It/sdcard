@@ -23,10 +23,10 @@ void diskio_set_sd_card(sd_card_info_t *info);
 
 void periph_init();
 int main(void) 
-{   
+{       
     periph_init();
-    SDIO_TestCardRead();
-    //SDIO_TestCard();
+    SDIO_TestCard();
+    //SDIO_TestCardRead();
     tusb_init();
     ButtonStatus button_status;
     while (1) 

@@ -5,6 +5,7 @@
 #include "stdbool.h"
 #include "sdio.h"
 #include "string.h"
+#include "sdio_ll_dma.h"
 
 // ------------------------ Новый API ----------------------------
 #define SD_OCR_BUSY_BIT         (1U << 31)    // Card Power Up Status (1 = готова)
@@ -263,7 +264,10 @@ sd_status_t sd_write_blocks(
         return status;
     }
 
-    status = sdio_ll_data_write(buffer, length);
+    status = sdio_ll_prepare_dma_tx(buffer, length);
+
+    if (status == SD_OK)
+        status = sdio_ll_wait_dma_tx();
 
     if (status != SD_OK) {
         SEGGER_RTT_printf(0,
@@ -465,7 +469,7 @@ uint32_t SDIO_TestCard(void)
     /* Заполняем буфер нулями */
     memset(test_buffer, 0, sizeof(test_buffer));
 
-    SEGGER_RTT_printf(0, "SD TEST: start, sectors 0..999\r\n");
+    SEGGER_RTT_printf(0, "SD TEST2345678: start, sectors 0..999\r\n");
 
     status = sd_init(&info);
     if (status != SD_OK)

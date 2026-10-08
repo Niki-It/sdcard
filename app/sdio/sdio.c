@@ -459,23 +459,29 @@ static sd_status_t sd_wait_ready(sd_card_info_t *info)
     }
 }
 
-
+static uint8_t SDIO_TestPattern(uint32_t lba, uint32_t offset)
+{
+    return (uint8_t)(
+        (lba * 37U) +
+        (offset * 13U) +
+        (offset >> 3) +
+        (lba >> 8)
+    );
+}
 uint32_t SDIO_TestCard(void)
 {
     sd_card_info_t info;
     sd_status_t status;
     static uint8_t test_buffer[512];
 
-    /* Заполняем весь блок значением 0x01 */
-    memset(test_buffer, 0x02, sizeof(test_buffer));
-
     SEGGER_RTT_printf(0,
         "SD TEST: write start, sectors 0..999\r\n");
 
     status = sd_init(&info);
+
     SEGGER_RTT_printf(0,
-        "GPIOC MODER=%08lX AFRH=%08lX\n"
-        "GPIOD MODER=%08lX AFRL=%08lX\n",
+        "GPIOC MODER=%08lX AFRH=%08lX\r\n"
+        "GPIOD MODER=%08lX AFRL=%08lX\r\n",
         (unsigned long)GPIOC->MODER,
         (unsigned long)GPIOC->AFR[1],
         (unsigned long)GPIOD->MODER,
@@ -508,6 +514,12 @@ uint32_t SDIO_TestCard(void)
 
     for (uint32_t lba = 0; lba < 1000U; lba++)
     {
+        // Уникальный шаблон для каждого сектора
+        for (uint32_t i = 0; i < sizeof(test_buffer); i++)
+        {
+            test_buffer[i] = SDIO_TestPattern(lba, i);
+        }
+
         status = sd_write_blocks(&info, lba, test_buffer, 1U);
 
         if (status != SD_OK)
@@ -532,7 +544,6 @@ uint32_t SDIO_TestCard(void)
 
     return (uint32_t)SD_OK;
 }
-
 
 uint32_t SDIO_TestCardRead(void)
 {
@@ -571,8 +582,8 @@ uint32_t SDIO_TestCardRead(void)
 
     for (uint32_t lba = 0; lba < 1000U; lba++)
     {
-        /* Заполняем буфер мусором перед чтением,
-           чтобы исключить ложное совпадение */
+        // Заполняем буфер значением, отличным от
+        // ожидаемых данных, перед чтением
         memset(test_buffer, 0x00, sizeof(test_buffer));
 
         status = sd_read_blocks(&info, lba, test_buffer, 1U);
@@ -586,17 +597,22 @@ uint32_t SDIO_TestCardRead(void)
             return (uint32_t)status;
         }
 
-        /* Проверяем все 512 байт */
+        // Проверяем каждый байт сектора
         for (uint32_t i = 0; i < sizeof(test_buffer); i++)
         {
-            if (test_buffer[i] != 0x02U)
+            uint8_t expected = SDIO_TestPattern(lba, i);
+
+            if (test_buffer[i] != expected)
             {
                 SEGGER_RTT_printf(0,
                     "SD TEST: DATA VERIFY FAILED "
-                    "LBA=%lu offset=%lu value=0x%02X\r\n",
+                    "LBA=%lu offset=%lu "
+                    "got=0x%02X expected=0x%02X\r\n",
                     (unsigned long)lba,
                     (unsigned long)i,
-                    (unsigned int)test_buffer[i]);
+                    (unsigned int)test_buffer[i],
+                    (unsigned int)expected
+                );
 
                 return (uint32_t)SD_ERR_IO;
             }

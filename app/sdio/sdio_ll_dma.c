@@ -363,6 +363,18 @@ sd_status_t sdio_ll_wait_dma_tx(void)
     if (status != SD_OK)
         return status;
 
+    if (LL_DMA_IsActiveFlag_TE6(DMA2) ||
+        LL_DMA_IsActiveFlag_DME6(DMA2))
+    {
+        return SD_ERR_IO;
+    }
+
+    // FE6 пока учитываем отдельно, не считаем фатальным
+    if (LL_DMA_IsActiveFlag_FE6(DMA2))
+    {
+        LL_DMA_ClearFlag_FE6(DMA2);
+        fe_counter++;
+    }
 
     // Этап 3: завершение SDIO
     SDIO->ICR = SDIO_ICR_DATAENDC;

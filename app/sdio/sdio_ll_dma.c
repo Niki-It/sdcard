@@ -298,6 +298,7 @@ static sd_status_t sdio_ll_check_tx_status(void)
            (unsigned long)SDIO->DCOUNT);
         LL_DMA_DisableStream(DMA2, SDIO_DMA_TX_STREAM);
         SDIO->ICR = SDIO_ICR_TXUNDERRC;
+        
         return SD_ERR_IO;
     }
 
@@ -318,73 +319,58 @@ static sd_status_t sdio_ll_check_tx_status(void)
     return SD_OK;
 }
 
+static uint32_t fe_counter;
 sd_status_t sdio_ll_wait_dma_tx(void)
 {
     sd_status_t status;
+    fe_counter = 0;
 
-    while (1)
+    // Этап 1: DMA TC
+    while (!LL_DMA_IsActiveFlag_TC6(DMA2))
     {
-        /* Проверяем ошибки SDIO */
         status = sdio_ll_check_tx_status();
         if (status != SD_OK)
             return status;
 
-        if (LL_DMA_IsActiveFlag_FE6(DMA2))
+        if(LL_DMA_IsActiveFlag_FE6(DMA2))
         {
-            SEGGER_RTT_printf(
-                0,
-                "FE6: STA=%08lX DCTRL=%08lX "
-                "FCR=%08lX CR=%08lX NDTR=%lu "
-                "FIFOCNT=%lu DCOUNT=%lu\r\n",
-                SDIO->STA,
-                SDIO->DCTRL,
-                DMA2_Stream6->FCR,
-                DMA2_Stream6->CR,
-                DMA2_Stream6->NDTR,
-                SDIO->FIFOCNT,
-                SDIO->DCOUNT
-            );
-
-            return SD_OK;
-        }
-        /* Проверяем ошибки DMA */
-        if (LL_DMA_IsActiveFlag_TE6(DMA2) ||
-            LL_DMA_IsActiveFlag_DME6(DMA2))
-        {
-
-            LL_DMA_DisableStream(
-                DMA2,
-                SDIO_DMA_TX_STREAM
-            );
-
-            LL_DMA_ClearFlag_TE6(DMA2);
-            LL_DMA_ClearFlag_DME6(DMA2);
             LL_DMA_ClearFlag_FE6(DMA2);
+            fe_counter++;
+            continue;
+        }
 
+        if (LL_DMA_IsActiveFlag_TE6(DMA2) || LL_DMA_IsActiveFlag_DME6(DMA2))
+        {
             return SD_ERR_IO;
         }
+    }
 
-        /*
-         * SDIO закончил передачу блока,
-         * а DMA Stream уже автоматически отключился
-         * в режиме PFCTRL.
-         */
-        if ((SDIO->STA & SDIO_STA_DBCKEND) &&
-            !LL_DMA_IsEnabledStream(DMA2, SDIO_DMA_TX_STREAM))
+    // Этап 2: SDIO DATAEND
+    while (!(SDIO->STA & SDIO_STA_DATAEND))
+    {
+        status = sdio_ll_check_tx_status();
+        if (status != SD_OK)
+            return status;
+
+        if (LL_DMA_IsActiveFlag_FE6(DMA2) ||
+            LL_DMA_IsActiveFlag_TE6(DMA2) ||
+            LL_DMA_IsActiveFlag_DME6(DMA2))
         {
-            status = sdio_ll_check_tx_status();
-            if (status != SD_OK)
-                return status;
-
-            SDIO->ICR =
-                SDIO_ICR_DBCKENDC |
-                SDIO_ICR_DATAENDC;
-
-            return SD_OK;
+            return SD_ERR_IO;
         }
     }
-}
+    status = sdio_ll_check_tx_status();
+    if (status != SD_OK)
+        return status;
 
+
+    // Этап 3: завершение SDIO
+    SDIO->ICR = SDIO_ICR_DATAENDC;
+    CLEAR_BIT(SDIO->DCTRL, SDIO_DCTRL_DTEN);
+    SEGGER_RTT_printf(0,"fe counter %u\r\n", fe_counter);
+
+    return SD_OK;
+}
 
 
 sd_status_t sdio_ll_prepare_dma_rx(
@@ -513,11 +499,6 @@ sd_status_t sdio_ll_prepare_dma_tx(
         words
     );
 
-    /*
-     * Enable DMA stream.
-     * При PFCTRL NDTR после enable становится 65535.
-     */
-    
 
     /*
      * SDIO data path
@@ -532,16 +513,17 @@ sd_status_t sdio_ll_prepare_dma_tx(
     SDIO->DTIMER = 0xFFFFFFFFU;
     SDIO->DLEN = length;
 
-    SDIO->DCTRL =
-        (9U << 4)        |
-        SDIO_DCTRL_DMAEN |
-        SDIO_DCTRL_DTEN;
-    
-
+    // Сначала включаем DMA
     LL_DMA_EnableStream(
         DMA2,
         SDIO_DMA_TX_STREAM
     );
+
+    // Затем настраиваем SDIO и запускаем передачу
+    SDIO->DCTRL =
+        (9U << 4)        |
+        SDIO_DCTRL_DMAEN |
+        SDIO_DCTRL_DTEN;
 
     return SD_OK;
 }

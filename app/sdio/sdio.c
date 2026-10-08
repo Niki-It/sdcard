@@ -257,21 +257,14 @@ sd_status_t sd_write_blocks(
         SD_RESP_SHORT_CRC
     );
 
+    if (status != SD_OK)
+        return status;
+
     status = sdio_ll_prepare_dma_tx(buffer, length);
     if (status != SD_OK) {
         return status;
     }
 
-    if (status != SD_OK) {
-        SEGGER_RTT_printf(0,
-            "SD WRITE: CMD25 failed, LBA=%lu count=%lu status=%d\r\n",
-            (unsigned long)lba,
-            (unsigned long)count,
-            status);
-        return status;
-    }
-
-    
 
     if (status == SD_OK)
         status = sdio_ll_wait_dma_tx();
@@ -480,6 +473,14 @@ uint32_t SDIO_TestCard(void)
         "SD TEST: write start, sectors 0..999\r\n");
 
     status = sd_init(&info);
+    SEGGER_RTT_printf(0,
+        "GPIOC MODER=%08lX AFRH=%08lX\n"
+        "GPIOD MODER=%08lX AFRL=%08lX\n",
+        (unsigned long)GPIOC->MODER,
+        (unsigned long)GPIOC->AFR[1],
+        (unsigned long)GPIOD->MODER,
+        (unsigned long)GPIOD->AFR[0]
+    );
 
     if (status != SD_OK)
     {

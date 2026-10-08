@@ -133,7 +133,7 @@ void sdio_ll_init_tx(void)
     LL_DMA_SetMode(
         DMA2,
         SDIO_DMA_TX_STREAM,
-        LL_DMA_MODE_NORMAL
+        LL_DMA_MODE_PFCTRL
     );
 
     /* SDIO FIFO address не изменяется */
@@ -164,30 +164,30 @@ void sdio_ll_init_tx(void)
     );
 
     /* DMA FIFO ON */
-    // LL_DMA_EnableFifoMode(
-    //     DMA2,
-    //     SDIO_DMA_TX_STREAM
-    // );
+    LL_DMA_EnableFifoMode(
+        DMA2,
+        SDIO_DMA_TX_STREAM
+    );
 
-    // /* FIFO threshold = FULL для INCR4 */
-    // LL_DMA_SetFIFOThreshold(
-    //     DMA2,
-    //     SDIO_DMA_TX_STREAM,
-    //     LL_DMA_FIFOTHRESHOLD_1_2
-    // );
+    /* FIFO threshold = FULL для INCR4 */
+    LL_DMA_SetFIFOThreshold(
+        DMA2,
+        SDIO_DMA_TX_STREAM,
+        LL_DMA_FIFOTHRESHOLD_FULL
+    );
 
-    // /* Burst = INCR4 */
-    // LL_DMA_SetPeriphBurstxfer(
-    //     DMA2,
-    //     SDIO_DMA_TX_STREAM,
-    //     LL_DMA_PBURST_INC4
-    // );
+    /* Burst = INCR4 */
+    LL_DMA_SetPeriphBurstxfer(
+        DMA2,
+        SDIO_DMA_TX_STREAM,
+        LL_DMA_PBURST_INC4
+    );
 
-    // LL_DMA_SetMemoryBurstxfer(
-    //     DMA2,
-    //     SDIO_DMA_TX_STREAM,
-    //     LL_DMA_MBURST_SINGLE
-    // );
+    LL_DMA_SetMemoryBurstxfer(
+        DMA2,
+        SDIO_DMA_TX_STREAM,
+        LL_DMA_PBURST_INC4
+    );
 }
 sd_status_t sdio_ll_dma_init(void)
 {
@@ -284,6 +284,18 @@ static sd_status_t sdio_ll_check_tx_status(void)
 
     if (sta & SDIO_STA_TXUNDERR)
     {
+        SEGGER_RTT_printf(0, "SDIO TXUNDERR: "
+           "STA=0x%08lX DCTRL=0x%08lX FCR=0x%08lX "
+           "DMA_CR=0x%08lX DMA_FCR=0x%08lX "
+           "NDTR=%lu FIFOCNT=%lu DCOUNT=%lu\r\n",
+           (unsigned long)SDIO->STA,
+           (unsigned long)SDIO->DCTRL,
+           (unsigned long)SDIO->FIFOCNT,
+           (unsigned long)DMA2_Stream6->CR,
+           (unsigned long)DMA2_Stream6->FCR,
+           (unsigned long)DMA2_Stream6->NDTR,
+           (unsigned long)((DMA2_Stream6->FCR >> 5) & 0x7),
+           (unsigned long)SDIO->DCOUNT);
         LL_DMA_DisableStream(DMA2, SDIO_DMA_TX_STREAM);
         SDIO->ICR = SDIO_ICR_TXUNDERRC;
         return SD_ERR_IO;
@@ -333,7 +345,7 @@ sd_status_t sdio_ll_wait_dma_tx(void)
                 SDIO->DCOUNT
             );
 
-            return SD_ERR_IO;
+            return SD_OK;
         }
         /* Проверяем ошибки DMA */
         if (LL_DMA_IsActiveFlag_TE6(DMA2) ||
@@ -505,24 +517,7 @@ sd_status_t sdio_ll_prepare_dma_tx(
      * Enable DMA stream.
      * При PFCTRL NDTR после enable становится 65535.
      */
-    SEGGER_RTT_printf( 
-        0,
-        "TXxx BEFORE EN: FCR=%08lX CR=%08lX NDTR=%lu\r\n",
-        DMA2_Stream6->FCR,
-        DMA2_Stream6->CR,
-        DMA2_Stream6->NDTR
-    );
-    LL_DMA_EnableStream(
-        DMA2,
-        SDIO_DMA_TX_STREAM
-    );
-    SEGGER_RTT_printf(
-        0,
-        "TX AFTER EN: FCR=%08lX CR=%08lX NDTR=%lu\r\n",
-        DMA2_Stream6->FCR,
-        DMA2_Stream6->CR,
-        DMA2_Stream6->NDTR
-    );
+    
 
     /*
      * SDIO data path
@@ -541,6 +536,12 @@ sd_status_t sdio_ll_prepare_dma_tx(
         (9U << 4)        |
         SDIO_DCTRL_DMAEN |
         SDIO_DCTRL_DTEN;
+    
+
+    LL_DMA_EnableStream(
+        DMA2,
+        SDIO_DMA_TX_STREAM
+    );
 
     return SD_OK;
 }

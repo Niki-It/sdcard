@@ -25,8 +25,9 @@ void periph_init();
 int main(void) 
 {       
     periph_init();
+    SEGGER_RTT_printf(0, "Main v5 pinc4, minc4 f_3_4: \r\n");
     SDIO_TestCard();
-    //SDIO_TestCardRead();
+    SDIO_TestCardRead();
     tusb_init();
     ButtonStatus button_status;
     while (1) 

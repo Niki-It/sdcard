@@ -186,7 +186,7 @@ void sdio_ll_init_tx(void)
     LL_DMA_SetMemoryBurstxfer(
         DMA2,
         SDIO_DMA_TX_STREAM,
-        LL_DMA_PBURST_INC4
+        LL_DMA_MBURST_INC4
     );
 }
 sd_status_t sdio_ll_dma_init(void)

@@ -1,5 +1,6 @@
 #include "i2s2.h"
 #include "stm32f4xx_ll_spi.h"
+#include "SEGGER_RTT.h"
 
 void I2S2_Init() {
     // Параметры i2s
@@ -17,6 +18,12 @@ void I2S2_Init() {
 
     // Запуск
     LL_I2S_Enable(SPI2);
+
+    LL_I2S_InitFullDuplex(I2S2ext, &I2S_InitStruct);
+
+    LL_I2S_EnableIT_RXNE(I2S2ext);
+
+    LL_I2S_Enable(I2S2ext);
 }
 
 #define TX_BUFFER_SIZE  32
@@ -41,5 +48,11 @@ void I2S2_Callback() {
         } else {
             idx = 0; // перезапуск
         }
+    }
+
+    if (LL_I2S_IsActiveFlag_RXNE(I2S2ext)) {
+        // Чтение регистра DR автоматически сбрасывает флаг RXNE
+        uint16_t rx_data = LL_SPI_ReceiveData16(I2S2ext); 
+        SEGGER_RTT_printf(0, "audio received: %u \r\n", rx_data);
     }
 }

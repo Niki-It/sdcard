@@ -52,43 +52,13 @@ void aic3104_init_analog_bypass(void) {
     
     // R 46: PGA_L to HPLOUT Volume Control Register
     aic3104_write_reg(0x2E, 0x80);
+
+    // R 60: PGA_L to HPROUT Volume Control Register
+    aic3104_write_reg(0x3C, 0b10111111);
     
     // R 51: HPLOUT Output Level Control Register
     aic3104_write_reg(0x33, 0x09);
 
-    // aic3104_write_reg(0x13, 0x04);
-    // LL_mDelay(50);
-
-    // aic3104_write_reg(0x16, 0x04);
-    // LL_mDelay(50);
-
-    // aic3104_write_reg(0x0F, 0x00);
-    // LL_mDelay(50);
-
-    // aic3104_write_reg(0x10, 0x00);
-    // LL_mDelay(50);
-
-    // aic3104_write_reg(0x07, 0x0A);
-    // LL_mDelay(50);
-
-    // aic3104_write_reg(0x25, 0xC0);
-    // LL_mDelay(50);
-
-    // aic3104_write_reg(0x2B, 0x00);
-    // LL_mDelay(50);
-
-    // aic3104_write_reg(0x2C, 0x00);
-    // LL_mDelay(50);
-
-    // aic3104_write_reg(0x52, 0x80);
-    // LL_mDelay(50);
-
-    // aic3104_write_reg(0x5C, 0x80);
-    // LL_mDelay(50);
-
-    // aic3104_write_reg(0x56, 0x09);
-    // LL_mDelay(50);
-
-    // aic3104_write_reg(0x5D, 0x09);
-    // LL_mDelay(50);
+    // R 65: HPROUT Output Level Control Register
+    aic3104_write_reg(0x41, 0x09);
 }

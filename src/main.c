@@ -5,14 +5,18 @@
 #include "mux.h"
 #include "i2s2.h"
 
-
 #include "tusb.h"
 #include "sdio/sdio.h"
 #include "led_controller/led_controller.h"
 #include "led_controller/led_raw/led_raw.h"
 #include "storage/fs.h"
 
-bool next_led = false;
+#define AMP_PORT        GPIOB
+#define APB_PIN         LL_GPIO_PIN_6
+#define OPR_PIN         LL_GPIO_PIN_7
+#define MUTE_AMP1_PIN   LL_GPIO_PIN_8
+#define MUTE_AMP2_PIN   LL_GPIO_PIN_9
+
 uint32_t tick_counter = 1;
 uint32_t message_counter = 0;
 uint32_t send_counter = 0;
@@ -25,9 +29,9 @@ void periph_init();
 int main(void) 
 {   
     periph_init();
-    //SDIO_TestCard();
     tusb_init();
     ButtonStatus button_status;
+    I2S2_StartTransmitIT();
     while (1) 
     {
         tud_task();
@@ -46,18 +50,16 @@ int main(void)
 
 void SysTick_Handler(void)
 {
-    if(tick_counter % 1000 == 0)
-    {
-        SEGGER_RTT_printf(0, "messages received: %u \r\n", message_counter);
-        tick_counter = 0;
-    }
-    tick_counter++;
-
+    // if(tick_counter % 1000 == 0)
+    // {
+    //     SEGGER_RTT_printf(0, "messages received: %u \r\n", message_counter);
+    //     tick_counter = 0;
+    // }
+    // tick_counter++;
 }
 
 void periph_init()
 {
-    
     // Инициализация RTT (SEGGER RTT)
     SEGGER_RTT_Init();
 
@@ -68,14 +70,12 @@ void periph_init()
 
     SysTick_Config(SystemCoreClock / 1000);
 
-    // LL_RCC_ClocksTypeDef clocks = {0};
-    // LL_RCC_GetSystemClocksFreq(&clocks);
-
     GPIO_Init();
     NVIC_Init();
-    NVIC_EnableIRQ(SysTick_IRQn);
 
     LedController_PeriphInit();
+
+    I2S2_Init();
 
     sd_status_t status = sd_init(&card_info);
     if (status != SD_OK)

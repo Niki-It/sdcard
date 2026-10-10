@@ -17,12 +17,12 @@ void I2S2_Init() {
     LL_I2S_ConfigPrescaler(SPI2, 3, LL_I2S_PRESCALER_PARITY_ODD);
 
     // Запуск
-    LL_I2S_Enable(SPI2);
 
     LL_I2S_InitFullDuplex(I2S2ext, &I2S_InitStruct);
 
-    //LL_I2S_EnableIT_RXNE(I2S2ext);
+    LL_I2S_EnableIT_RXNE(I2S2ext);
 
+    LL_I2S_Enable(SPI2);
     LL_I2S_Enable(I2S2ext);
 }
 
@@ -43,16 +43,22 @@ void I2S2_StartTransmitIT(void) {
 
 void I2S2_Callback() {
     static uint32_t idx = 1;
-    if (LL_SPI_IsActiveFlag_TXE(SPI2)) {
-        if (idx < TX_BUFFER_SIZE) {
-            LL_SPI_TransmitData16(SPI2, txBuffer[idx++]);
-        } else {
-            idx = 0; // перезапуск
+    if (LL_SPI_IsActiveFlag_TXE(SPI2))
+    {
+        LL_SPI_TransmitData16(SPI2, txBuffer[idx++]);
+
+        if (idx >= TX_BUFFER_SIZE)
+        {
+            idx = 0;
         }
     }
 
     if (LL_I2S_IsActiveFlag_RXNE(I2S2ext)) {
         // Чтение регистра DR автоматически сбрасывает флаг RXNE
         uint16_t rx_data = LL_SPI_ReceiveData16(I2S2ext); 
+        if(rx_data != 0xFFFF)
+        {
+            SEGGER_RTT_printf(0, "audio received: %u \r\n", rx_data);
+        }
     }
 }

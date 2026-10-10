@@ -3,6 +3,7 @@
 #include "stm32f4xx_ll_bus.h"
 #include "stm32f4xx_ll_gpio.h"
 #include "stm32f4xx_ll_utils.h"
+#include "SEGGER_RTT.h"
 
 #define I2C_TIMEOUT_MS 50
 
@@ -41,7 +42,8 @@ void aic3104_init_clocking(void) {
     LL_mDelay(50);
 }
 
-void aic3104_init_analog_bypass(void) {   
+void aic3104_init_analog_bypass(void) 
+{   
     aic3104_write_reg(0x00, 0x00);
     
     // R 19: MIC1LP/LINE1LP to Left-ADC Control Register
@@ -61,4 +63,40 @@ void aic3104_init_analog_bypass(void) {
 
     // R 65: HPROUT Output Level Control Register
     aic3104_write_reg(0x41, 0x09);
+}
+
+void aic3104_line1lp_toi2c(void)
+{
+    aic3104_write_reg(0x00, 0x00);
+
+    // включение ADC
+    aic3104_write_reg(19, 0x04);
+    // включение PGA
+    aic3104_write_reg(0x0F, 0x00);
+
+    // 1 HP filter
+    aic3104_write_reg(0x0C, 0x00);
+    aic3104_write_reg(107, 0x30);
+
+
+}
+void aic3104_line1rp_toi2c(void)
+{
+    aic3104_write_reg(0x00, 0x00);
+
+    
+}
+void aic3104_read_adc_status(void)
+{
+    uint8_t adc_status = aic3104_read_reg(36);
+
+    SEGGER_RTT_printf(0, "ADC STATUS: 0x%02X\r\n", adc_status); 
+    SEGGER_RTT_printf(0, "R3   = 0x%02X\r\n", aic3104_read_reg(3));
+    SEGGER_RTT_printf(0, "R8   = 0x%02X\r\n", aic3104_read_reg(8));
+    SEGGER_RTT_printf(0, "R9   = 0x%02X\r\n", aic3104_read_reg(9));
+    SEGGER_RTT_printf(0, "R15  = 0x%02X\r\n", aic3104_read_reg(15));
+    SEGGER_RTT_printf(0, "R19  = 0x%02X\r\n", aic3104_read_reg(19));
+    SEGGER_RTT_printf(0, "R36  = 0x%02X\r\n", aic3104_read_reg(36));
+    SEGGER_RTT_printf(0, "R101 = 0x%02X\r\n", aic3104_read_reg(101));
+    SEGGER_RTT_printf(0, "R107 = 0x%02X\r\n", aic3104_read_reg(107));
 }

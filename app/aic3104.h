@@ -31,5 +31,8 @@ uint8_t aic3104_read_reg(uint8_t reg);
 
 void aic3104_init_clocking(void);
 void aic3104_init_analog_bypass(void);
+void aic3104_line1lp_toi2c(void);
+void aic3104_line1rp_toi2c(void);
+void aic3104_read_adc_status(void);
 
 #endif

@@ -33,6 +33,12 @@ int main(void)
     tusb_init();
     ButtonStatus button_status;
     I2S2_StartTransmitIT();
+    mux_select(2, MUX_CHANNEL_X1);
+    aic3104_init();
+    aic3104_init_clocking();
+    aic3104_line1lp_toi2c();
+    aic3104_read_adc_status();
+
     while (1) 
     {
         tud_task();
@@ -79,6 +85,7 @@ void periph_init()
 
     LedController_PeriphInit();
 
+    soft_i2c_init();
     I2S2_Init();
 
     sd_status_t status = sd_init(&card_info);

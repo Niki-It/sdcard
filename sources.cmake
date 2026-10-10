@@ -7,6 +7,7 @@ set(SOURCES
     "app/mux.c"
     "app/sdio/sdio.c"
     "app/sdio/sdio_ll.c"
+    "app/sdio/sdio_ll_dma.c"
     "app/soft_i2c.c"
     "app/storage/diskio.c"
     "app/storage/fatfs_time.c"

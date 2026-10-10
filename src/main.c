@@ -27,8 +27,11 @@ void diskio_set_sd_card(sd_card_info_t *info);
 
 void periph_init();
 int main(void) 
-{   
+{       
     periph_init();
+    SEGGER_RTT_printf(0, "Main v5 pinc4, minc4 f_full: \r\n");
+    SDIO_TestCard();
+    SDIO_TestCardRead();
     tusb_init();
     ButtonStatus button_status;
     I2S2_StartTransmitIT();
@@ -38,11 +41,14 @@ int main(void)
         button_status = poll_button_events();
         if(button_status.ready == 1)
         {
-            message_counter++;
+            if(button_status.VD1 == DOUBLE_SHORT)
+            {
+                message_counter++;
+            }
         }
         if(can_send_command())
         {
-            send_SetLedState(USART2);
+            send_SetLedState(UART4);
         }
     }
     

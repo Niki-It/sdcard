@@ -1,6 +1,9 @@
 #pragma once
 #include "stdint.h"
 #include "stdbool.h"
+#include "stddef.h"
+#include <stm32f405xx.h>
+#include "SEGGER_RTT.h"
 
 typedef enum 
 {
@@ -80,4 +83,4 @@ sd_status_t sdio_ll_data_read(
     uint32_t length
 );
 
-sd_status_t sdio_ll_dma_init(void);
+

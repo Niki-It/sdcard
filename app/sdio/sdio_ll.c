@@ -1,7 +1,5 @@
 #include "sdio_ll.h"
-#include <stm32f405xx.h>
-#include "stddef.h"
-#include "SEGGER_RTT.h"
+
 
 uint32_t sdio_ll_get_short_response()
 {
@@ -204,7 +202,7 @@ sd_status_t sdio_ll_set_clock(sdio_clock_t clock)
 
         case SD_CLK_WORK:
             /* 48 MHz / (0 + 2) = 24 MHz */
-            clkdiv = 6U; 
+            clkdiv = 0U; 
             break;
 
         default:
@@ -498,128 +496,9 @@ sd_status_t sdio_ll_data_read(
     }
 }
 
-#include "stm32f4xx_ll_dma.h"
-#include "stm32f4xx_ll_bus.h"
-
-#define SDIO_DMA_RX_STREAM   LL_DMA_STREAM_3
-#define SDIO_DMA_TX_STREAM   LL_DMA_STREAM_6
-#define SDIO_DMA_CHANNEL     LL_DMA_CHANNEL_4
-
-sd_status_t sdio_ll_dma_init(void)
-{
-    /* Включаем тактирование DMA2 */
-    LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA2);
-
-    /* Отключаем stream перед конфигурацией */
-    LL_DMA_DisableStream(DMA2, SDIO_DMA_RX_STREAM);
-    LL_DMA_DisableStream(DMA2, SDIO_DMA_TX_STREAM);
-
-    while (LL_DMA_IsEnabledStream(DMA2, SDIO_DMA_RX_STREAM)) {}
-    while (LL_DMA_IsEnabledStream(DMA2, SDIO_DMA_TX_STREAM)) {}
-
-    /* Очищаем флаги RX */
-    LL_DMA_ClearFlag_FE3(DMA2);
-    LL_DMA_ClearFlag_DME3(DMA2);
-    LL_DMA_ClearFlag_TE3(DMA2);
-    LL_DMA_ClearFlag_HT3(DMA2);
-    LL_DMA_ClearFlag_TC3(DMA2);
-
-    /* Очищаем флаги TX */
-    LL_DMA_ClearFlag_FE6(DMA2);
-    LL_DMA_ClearFlag_DME6(DMA2);
-    LL_DMA_ClearFlag_TE6(DMA2);
-    LL_DMA_ClearFlag_HT6(DMA2);
-    LL_DMA_ClearFlag_TC6(DMA2);
-
-    /* RX: SDIO FIFO -> RAM */
-    LL_DMA_SetChannelSelection(
-        DMA2, SDIO_DMA_RX_STREAM,SDIO_DMA_CHANNEL
-    );
-    LL_DMA_SetDataTransferDirection(
-        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_DIRECTION_PERIPH_TO_MEMORY
-    );
-    LL_DMA_SetStreamPriorityLevel(
-        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_PRIORITY_VERYHIGH
-    );
-    LL_DMA_SetMode(
-        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_MODE_NORMAL
-    );
-    LL_DMA_SetPeriphIncMode(
-        DMA2, SDIO_DMA_RX_STREAM,  LL_DMA_PERIPH_NOINCREMENT
-    );
-    LL_DMA_SetMemoryIncMode(
-        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_MEMORY_INCREMENT
-    );
-    LL_DMA_SetPeriphSize(
-        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_PDATAALIGN_WORD
-    );
-    LL_DMA_SetMemorySize(
-        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_MDATAALIGN_WORD
-    );
-    LL_DMA_DisableFifoMode(DMA2, SDIO_DMA_RX_STREAM);
-
-    /* TX: RAM -> SDIO FIFO */
-    LL_DMA_SetChannelSelection(
-        DMA2, SDIO_DMA_TX_STREAM, SDIO_DMA_CHANNEL
-    );
-    LL_DMA_SetDataTransferDirection(
-        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_DIRECTION_MEMORY_TO_PERIPH
-    );
-    LL_DMA_SetStreamPriorityLevel(
-        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_PRIORITY_VERYHIGH
-    );
-    LL_DMA_SetMode(DMA2, SDIO_DMA_TX_STREAM, LL_DMA_MODE_NORMAL);
-
-    LL_DMA_SetPeriphIncMode(
-        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_PERIPH_NOINCREMENT
-    );
-    LL_DMA_SetMemoryIncMode(
-        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_MEMORY_INCREMENT
-    );
-    LL_DMA_SetPeriphSize(
-        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_PDATAALIGN_WORD);
-    LL_DMA_SetMemorySize(
-        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_MDATAALIGN_WORD
-    );
-    LL_DMA_DisableFifoMode(DMA2, SDIO_DMA_TX_STREAM);
 
 
-    /* RX: SDIO FIFO -> RAM */
-
-    /* Burst */
-    LL_DMA_SetPeriphBurstxfer(
-        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_PBURST_INC4
-    );
-
-    LL_DMA_SetMemoryBurstxfer(
-        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_MBURST_INC4
-    );
-
-    /* DMA FIFO */
-    LL_DMA_EnableFifoMode(DMA2, SDIO_DMA_RX_STREAM);
-
-    LL_DMA_SetFIFOThreshold(
-        DMA2, SDIO_DMA_RX_STREAM, LL_DMA_FIFOTHRESHOLD_FULL
-    );
 
 
-    /* TX: RAM -> SDIO FIFO */
 
-    /* Burst */
-    LL_DMA_SetPeriphBurstxfer(
-        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_PBURST_INC4
-    );
 
-    LL_DMA_SetMemoryBurstxfer(
-        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_MBURST_INC4
-    );
-
-    /* DMA FIFO */
-    LL_DMA_EnableFifoMode(DMA2, SDIO_DMA_TX_STREAM);
-
-    LL_DMA_SetFIFOThreshold(
-        DMA2, SDIO_DMA_TX_STREAM, LL_DMA_FIFOTHRESHOLD_FULL
-    );
-
-    return SD_OK;
-}

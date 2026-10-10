@@ -3,6 +3,7 @@
 
 
 uint32_t SDIO_TestCard(void);
+uint32_t SDIO_TestCardRead(void);
 
 // ---------------- Новый API ---------------------------- 
 
@@ -31,5 +32,6 @@ sd_status_t sd_write_blocks(
     const uint8_t *buffer,
     uint32_t count
 );
+
 
 // sd_status_t sd_sync(void); // не используется

@@ -10,6 +10,7 @@
 #include "led_controller/led_controller.h"
 #include "led_controller/led_raw/led_raw.h"
 #include "storage/fs.h"
+#include "../lib/Helix/src/pub/mp3dec.h"
 
 #define AMP_PORT        GPIOB
 #define APB_PIN         LL_GPIO_PIN_6
@@ -32,12 +33,28 @@ int main(void)
     fs_unit(true);
     tusb_init();
     ButtonStatus button_status;
-    I2S2_StartTransmitIT();
+//    I2S2_StartTransmitIT();
     mux_select(2, MUX_CHANNEL_X1);
     aic3104_init();
     aic3104_init_clocking();
     aic3104_line1lp_toi2c();
     aic3104_read_adc_status();
+
+    HMP3Decoder decoder = MP3InitDecoder();
+
+    if (decoder == NULL)
+    {
+        SEGGER_RTT_printf(0, "MP3 decoder init error\r\n");
+    }
+    MP3FrameInfo frameInfo;
+
+    MP3GetLastFrameInfo(decoder, &frameInfo);
+
+    SEGGER_RTT_printf(0,
+                    "MP3: %d Hz, %d channels, %d samples\r\n",
+                    frameInfo.samprate,
+                    frameInfo.nChans,
+                    frameInfo.outputSamps);
 
     while (1) 
     {

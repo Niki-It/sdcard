@@ -101,7 +101,16 @@ if(USE_FATFS)
     target_link_libraries(${PROJECT_NAME}.elf PRIVATE FatFs)
     message(STATUS "LIB: FatFs enabled")
 endif()
+# --- Helix ---
+if(USE_HELIX)
+    add_subdirectory(${LIBS_DIR}/Helix)
 
+    mcu_link(helixmp3)
+
+    target_link_libraries(${PROJECT_NAME}.elf PRIVATE helixmp3)
+
+    message(STATUS "LIB: Helix MP3 enabled")
+endif()
 # --- FreeRTOS ---
 if(USE_FREERTOS)
     # Задел на будущее: когда появится модуль lib/FreeRTOS/CMakeLists.txt

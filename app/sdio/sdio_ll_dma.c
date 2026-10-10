@@ -379,7 +379,7 @@ sd_status_t sdio_ll_wait_dma_tx(void)
     // Этап 3: завершение SDIO
     SDIO->ICR = SDIO_ICR_DATAENDC;
     CLEAR_BIT(SDIO->DCTRL, SDIO_DCTRL_DTEN);
-    SEGGER_RTT_printf(0,"fe counter %u\r\n", fe_counter);
+    //SEGGER_RTT_printf(0,"fe counter %u\r\n", fe_counter);
 
     return SD_OK;
 }
@@ -466,6 +466,8 @@ sd_status_t sdio_ll_prepare_dma_tx(
     uint32_t words;
 
     if (buffer == NULL || length == 0)
+        return SD_ERR_IO;
+    if (((uintptr_t)buffer & 0x3U) != 0U)
         return SD_ERR_IO;
 
     if ((length & 0x3U) != 0)

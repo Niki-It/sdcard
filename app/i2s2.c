@@ -32,6 +32,7 @@ static uint16_t txBuffer[TX_BUFFER_SIZE];
 void I2S2_StartTransmitIT(void) {
     for (int i = 0; i < TX_BUFFER_SIZE; i++)
         txBuffer[i] = (i * 1000) & 0xFFFF;
+        
 
     // Включаем прерывание по завершению передачи (TXE)
     LL_SPI_EnableIT_TXE(SPI2);

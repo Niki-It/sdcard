@@ -45,15 +45,56 @@ void GPIO_Init(void)
     gpio_mux2.Pull = LL_GPIO_PULL_NO;
     LL_GPIO_Init(MUX2_PORT, &gpio_mux2);
 
-    // === 5. Настройка пина MCLK (PC6) ===
-    LL_GPIO_InitTypeDef gpio_i2s2 = {0};
-    gpio_i2s2.Pin        = LL_GPIO_PIN_6;
-    gpio_i2s2.Mode       = LL_GPIO_MODE_ALTERNATE;
-    gpio_i2s2.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
-    gpio_i2s2.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-    gpio_i2s2.Pull       = LL_GPIO_PULL_NO;
-    gpio_i2s2.Alternate  = LL_GPIO_AF_5;  // AF5 для SPI2/I2S2
-    LL_GPIO_Init(GPIOC, &gpio_i2s2);
+    // === 5. Настройка пинов I2S ===
+    // PC6 - MCLK
+    LL_GPIO_InitTypeDef gpio_i2s2_MCLK = {0};
+    gpio_i2s2_MCLK.Pin        = LL_GPIO_PIN_6;
+    gpio_i2s2_MCLK.Mode       = LL_GPIO_MODE_ALTERNATE;
+    gpio_i2s2_MCLK.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
+    gpio_i2s2_MCLK.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+    gpio_i2s2_MCLK.Pull       = LL_GPIO_PULL_NO;
+    gpio_i2s2_MCLK.Alternate  = LL_GPIO_AF_5;  // AF5 для SPI2/I2S2
+    LL_GPIO_Init(GPIOC, &gpio_i2s2_MCLK);
+
+    // PB12 - WCLK
+    LL_GPIO_InitTypeDef gpio_i2s_WCLK = {0};
+    gpio_i2s_WCLK.Pin        = LL_GPIO_PIN_12;
+    gpio_i2s_WCLK.Mode       = LL_GPIO_MODE_ALTERNATE;
+    gpio_i2s_WCLK.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
+    gpio_i2s_WCLK.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+    gpio_i2s_WCLK.Pull       = LL_GPIO_PULL_NO;
+    gpio_i2s_WCLK.Alternate  = LL_GPIO_AF_5;
+    LL_GPIO_Init(GPIOB, &gpio_i2s_WCLK);
+
+    // PB13 - BCLK
+    LL_GPIO_InitTypeDef gpio_i2s_BCLK = {0};
+    gpio_i2s_BCLK.Pin        = LL_GPIO_PIN_13;
+    gpio_i2s_BCLK.Mode       = LL_GPIO_MODE_ALTERNATE;
+    gpio_i2s_BCLK.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
+    gpio_i2s_BCLK.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+    gpio_i2s_BCLK.Pull       = LL_GPIO_PULL_NO;
+    gpio_i2s_BCLK.Alternate  = LL_GPIO_AF_5;
+    LL_GPIO_Init(GPIOB, &gpio_i2s_BCLK);
+
+    // PB14 - DIN
+    LL_GPIO_InitTypeDef gpio_i2s_DIN = {0};
+    gpio_i2s_DIN.Pin        = LL_GPIO_PIN_14;
+    gpio_i2s_DIN.Mode       = LL_GPIO_MODE_ALTERNATE;
+    gpio_i2s_DIN.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
+    gpio_i2s_DIN.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+    gpio_i2s_DIN.Pull       = LL_GPIO_PULL_NO;
+    gpio_i2s_DIN.Alternate  = LL_GPIO_AF_6;
+    LL_GPIO_Init(GPIOB, &gpio_i2s_DIN);
+
+    // PB15 - DOUT
+    LL_GPIO_InitTypeDef gpio_i2s_DOUT = {0};
+    gpio_i2s_DOUT.Pin        = LL_GPIO_PIN_15;
+    gpio_i2s_DOUT.Mode       = LL_GPIO_MODE_ALTERNATE;
+    gpio_i2s_DOUT.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
+    gpio_i2s_DOUT.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+    gpio_i2s_DOUT.Pull       = LL_GPIO_PULL_NO;
+    gpio_i2s_DOUT.Alternate  = LL_GPIO_AF_5;
+    LL_GPIO_Init(GPIOB, &gpio_i2s_DOUT);
 
     // === 6. Настройка пинов USB OTG FS (PA9, PA10, PA11, PA12) ===
     // PA11 (D-) и PA12 (D+) - Линии данных
@@ -106,6 +147,16 @@ void GPIO_Init(void)
     // gpio_sdio_d.Pull       = LL_GPIO_PULL_UP;              // Подтяжка уже выполнена аппаратно
     gpio_sdio_d.Alternate  = LL_GPIO_AF_12;                // AF12 для SDIO в STM32F4
     LL_GPIO_Init(GPIOD, &gpio_sdio_d);
+
+    // === 8. Настройка пинов для MUTE_AMP ===
+    // PB8 - MUTE_AMP1, PB9 - MUTE_AMP2
+    LL_GPIO_InitTypeDef gpio_mute_amp = {0};
+    gpio_mute_amp.Pin = LL_GPIO_PIN_6 | LL_GPIO_PIN_7 | LL_GPIO_PIN_8 | LL_GPIO_PIN_9;
+    gpio_mute_amp.Mode = LL_GPIO_MODE_OUTPUT;
+    gpio_mute_amp.Speed = LL_GPIO_SPEED_FREQ_LOW;
+    gpio_mute_amp.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+    gpio_mute_amp.Pull = LL_GPIO_PULL_DOWN;
+    LL_GPIO_Init(GPIOB, &gpio_mute_amp);
 
     led_controller_gpio_init();
 }

@@ -10,6 +10,7 @@ extern void I2S2_Callback();
 void NVIC_Init(void){
 
     NVIC_SetPriority(SysTick_IRQn, 0);
+    NVIC_EnableIRQ(SysTick_IRQn);
     
     NVIC_SetPriority(SPI2_IRQn, 3);
     NVIC_EnableIRQ(SPI2_IRQn);

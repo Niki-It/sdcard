@@ -29,9 +29,7 @@ void periph_init();
 int main(void) 
 {       
     periph_init();
-    SEGGER_RTT_printf(0, "Main v5 pinc4, minc4 f_full: \r\n");
-    SDIO_TestCard();
-    SDIO_TestCardRead();
+    fs_unit(true);
     tusb_init();
     ButtonStatus button_status;
     I2S2_StartTransmitIT();

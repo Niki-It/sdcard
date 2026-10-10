@@ -21,7 +21,7 @@ void I2S2_Init() {
 
     LL_I2S_InitFullDuplex(I2S2ext, &I2S_InitStruct);
 
-    LL_I2S_EnableIT_RXNE(I2S2ext);
+    //LL_I2S_EnableIT_RXNE(I2S2ext);
 
     LL_I2S_Enable(I2S2ext);
 }
@@ -54,6 +54,5 @@ void I2S2_Callback() {
     if (LL_I2S_IsActiveFlag_RXNE(I2S2ext)) {
         // Чтение регистра DR автоматически сбрасывает флаг RXNE
         uint16_t rx_data = LL_SPI_ReceiveData16(I2S2ext); 
-        SEGGER_RTT_printf(0, "audio received: %u \r\n", rx_data);
     }
 }

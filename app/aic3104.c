@@ -74,7 +74,6 @@ void aic3104_line1lp_toi2c(void)
     // включение PGA
     aic3104_write_reg(0x0F, 0x00);
 
-    // 1 HP filter
     aic3104_write_reg(0x0C, 0x00);
     aic3104_write_reg(107, 0x30);
 
@@ -88,9 +87,6 @@ void aic3104_line1rp_toi2c(void)
 }
 void aic3104_read_adc_status(void)
 {
-    uint8_t adc_status = aic3104_read_reg(36);
-
-    SEGGER_RTT_printf(0, "ADC STATUS: 0x%02X\r\n", adc_status); 
     SEGGER_RTT_printf(0, "R3   = 0x%02X\r\n", aic3104_read_reg(3));
     SEGGER_RTT_printf(0, "R8   = 0x%02X\r\n", aic3104_read_reg(8));
     SEGGER_RTT_printf(0, "R9   = 0x%02X\r\n", aic3104_read_reg(9));

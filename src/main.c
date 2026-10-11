@@ -1,4 +1,3 @@
-
 #include "soft_i2c.h"
 #include "aic3104.h"
 #include "main.h"
@@ -37,7 +36,7 @@ int main(void)
     aic3104_init();
     aic3104_init_clocking();
     aic3104_line1lp_toi2c();
-    aic3104_read_adc_status();
+    // aic3104_read_adc_status();
 
     while (1) 
     {
@@ -96,6 +95,3 @@ void periph_init()
     }
     diskio_set_sd_card(&card_info);
 }
-
-
-

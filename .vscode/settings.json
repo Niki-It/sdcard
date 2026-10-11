@@ -4,4 +4,5 @@
     "files.associations": {
         "*.h": "c"
     },
+    "cortex-debug.variableUseNaturalFormat": true,
 }

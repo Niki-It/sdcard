@@ -11,6 +11,7 @@
 #include "led_controller/led_raw/led_raw.h"
 #include "storage/fs.h"
 #include "../lib/Helix/src/pub/mp3dec.h"
+#include "mp3/decoder.h"
 
 #define AMP_PORT        GPIOB
 #define APB_PIN         LL_GPIO_PIN_6
@@ -55,10 +56,11 @@ int main(void)
                     frameInfo.samprate,
                     frameInfo.nChans,
                     frameInfo.outputSamps);
-
+    MP3_TestDecode();
     while (1) 
     {
         tud_task();
+
         button_status = poll_button_events();
         if(button_status.ready == 1)
         {

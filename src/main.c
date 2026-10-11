@@ -2,7 +2,7 @@
 #include "aic3104.h"
 #include "main.h"
 #include "mux.h"
-#include "i2s2.h"
+#include "i2s/i2s2.h"
 
 #include "tusb.h"
 #include "sdio/sdio.h"
@@ -33,14 +33,18 @@ int main(void)
     fs_unit(true);
     tusb_init();
     ButtonStatus button_status;
-//    I2S2_StartTransmitIT();
+
+    
     mux_select(2, MUX_CHANNEL_X1);
     aic3104_init();
     aic3104_init_clocking();
     aic3104_line1lp_toi2c();
+    i2s_dma_init();
+    i2s_test_tx();
+    //I2S2_StartTransmitIT();
     // aic3104_read_adc_status();
 
-    process_mp3();
+
     while (1) 
     {
         tud_task();
@@ -60,6 +64,7 @@ int main(void)
     }
     
 }
+
 
 void SysTick_Handler(void)
 {

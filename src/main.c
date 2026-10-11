@@ -41,22 +41,7 @@ int main(void)
     aic3104_line1lp_toi2c();
     aic3104_read_adc_status();
 
-    HMP3Decoder decoder = MP3InitDecoder();
-
-    if (decoder == NULL)
-    {
-        SEGGER_RTT_printf(0, "MP3 decoder init error\r\n");
-    }
-    MP3FrameInfo frameInfo;
-
-    MP3GetLastFrameInfo(decoder, &frameInfo);
-
-    SEGGER_RTT_printf(0,
-                    "MP3: %d Hz, %d channels, %d samples\r\n",
-                    frameInfo.samprate,
-                    frameInfo.nChans,
-                    frameInfo.outputSamps);
-    MP3_TestDecode();
+    process_mp3();
     while (1) 
     {
         tud_task();

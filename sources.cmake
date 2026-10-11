@@ -1,9 +1,11 @@
 set(SOURCES
     "app/aic3104.c"
+    "app/button_combo.c"
     "app/customcrc8/new_crc8.c"
     "app/i2s2.c"
     "app/led_controller/led_controller.c"
     "app/led_controller/led_raw/led_raw.c"
+    "app/mp3/decoder.c"
     "app/mux.c"
     "app/sdio/sdio.c"
     "app/sdio/sdio_ll.c"

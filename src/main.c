@@ -10,7 +10,7 @@
 #include "led_controller/led_raw/led_raw.h"
 #include "storage/fs.h"
 #include "../lib/Helix/src/pub/mp3dec.h"
-#include "mp3/decoder.h"
+#include "media/mp3_decoder.h"
 
 #define AMP_PORT        GPIOB
 #define APB_PIN         LL_GPIO_PIN_6

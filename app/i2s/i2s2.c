@@ -8,17 +8,28 @@
 #include "stm32f4xx_ll_utils.h"
 #include "stm32f4xx.h"
 #include "SEGGER_RTT.h"
+#include <circular/ring.h>
 
 #define I2S_BUFFER_SAMPLES  1024U
-
-static uint16_t i2s_tx_buffer[I2S_BUFFER_SAMPLES];
-static uint16_t i2s_rx_buffer[I2S_BUFFER_SAMPLES];
 
 static volatile uint8_t i2s_tx_done = 0;
 static volatile uint8_t i2s_rx_done = 0;
 static volatile uint8_t i2s_tx_error = 0;
 static volatile uint8_t i2s_rx_error = 0;
 static volatile uint8_t i2s_transfer_active = 0;
+
+#define I2S_RX_BUFFER_BYTES     4096U
+#define I2S_RX_BUFFER_SAMPLES   (I2S_RX_BUFFER_BYTES / 2U)
+#define I2S_RX_HALF_SAMPLES     (I2S_RX_BUFFER_SAMPLES / 2U)
+
+#define AUDIO_RING_BLOCK_SIZE   (I2S_RX_BUFFER_BYTES / 2U)
+#define AUDIO_RING_BLOCK_COUNT  8U
+
+static uint16_t i2s_rx_buffer[I2S_RX_BUFFER_SAMPLES];
+static uint8_t audio_ring_storage[AUDIO_RING_BLOCK_COUNT * AUDIO_RING_BLOCK_SIZE];
+
+static ring_t audio_ring;
+static volatile uint32_t audio_rx_overruns = 0;
 
 // DMA1 Stream 3 / Channel 0: SPI2_RX
 void i2s_dma_init_rx(void)
@@ -34,7 +45,7 @@ void i2s_dma_init_rx(void)
         DMA1,
         LL_DMA_STREAM_3,
         LL_DMA_DIRECTION_PERIPH_TO_MEMORY |
-        LL_DMA_MODE_NORMAL |
+        LL_DMA_MODE_CIRCULAR |
         LL_DMA_PERIPH_NOINCREMENT |
         LL_DMA_MEMORY_INCREMENT |
         LL_DMA_PDATAALIGN_HALFWORD |
@@ -52,7 +63,7 @@ void i2s_dma_init_rx(void)
         LL_DMA_DIRECTION_PERIPH_TO_MEMORY
     );
 
-    LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_3, I2S_BUFFER_SAMPLES);
+    LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_3, I2S_RX_BUFFER_SAMPLES);
 
     LL_DMA_ClearFlag_TC3(DMA1);
     LL_DMA_ClearFlag_HT3(DMA1);
@@ -61,6 +72,7 @@ void i2s_dma_init_rx(void)
     LL_DMA_ClearFlag_FE3(DMA1);
 
     LL_DMA_EnableIT_TC(DMA1, LL_DMA_STREAM_3);
+    LL_DMA_EnableIT_HT(DMA1, LL_DMA_STREAM_3);
     LL_DMA_EnableIT_TE(DMA1, LL_DMA_STREAM_3);
     LL_DMA_EnableIT_DME(DMA1, LL_DMA_STREAM_3);
 
@@ -175,19 +187,40 @@ void i2s_stop(void)
 void DMA1_Stream3_IRQHandler(void)
 {
     if (LL_DMA_IsActiveFlag_TE3(DMA1) ||
-        LL_DMA_IsActiveFlag_DME3(DMA1))
+        LL_DMA_IsActiveFlag_DME3(DMA1) ||
+        LL_DMA_IsActiveFlag_FE3(DMA1))
     {
         LL_DMA_ClearFlag_TE3(DMA1);
         LL_DMA_ClearFlag_DME3(DMA1);
+        LL_DMA_ClearFlag_FE3(DMA1);
 
         i2s_rx_error = 1;
+
+        LL_SPI_DisableDMAReq_RX(SPI2);
+
+        return;
+    }
+
+    if (LL_DMA_IsActiveFlag_HT3(DMA1))
+    {
+        LL_DMA_ClearFlag_HT3(DMA1);
+
+        if (!ring_push(&audio_ring,
+                       (uint8_t *)&i2s_rx_buffer[0]))
+        {
+            audio_rx_overruns++;
+        }
     }
 
     if (LL_DMA_IsActiveFlag_TC3(DMA1))
     {
         LL_DMA_ClearFlag_TC3(DMA1);
 
-        i2s_rx_done = 1;
+        if (!ring_push(&audio_ring,
+                       (uint8_t *)&i2s_rx_buffer[I2S_RX_HALF_SAMPLES]))
+        {
+            audio_rx_overruns++;
+        }
     }
 }
 

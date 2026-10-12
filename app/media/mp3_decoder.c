@@ -1,5 +1,5 @@
 
-#include "decoder.h"
+#include "mp3_decoder.h"
 
 #define MP3_FILE_NAME          "muse.mp3"
 #define MP3_BUFFER_SIZE        4096

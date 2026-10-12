@@ -24,7 +24,7 @@ static uint16_t i2s_rx_buffer[I2S_RX_BUFFER_SAMPLES];
 static uint8_t audio_ring_storage[AUDIO_RING_BLOCK_SIZE * AUDIO_RING_BLOCK_COUNT];
 static uint8_t audio_read_buffer[AUDIO_RING_BLOCK_SIZE];
 
-static ring_t audio_ring;
+ring_t audio_ring;
 
 static volatile uint8_t i2s_tx_done = 0;
 static volatile uint8_t i2s_rx_done = 0;
@@ -276,6 +276,7 @@ int i2s_rx_start_block(void)
     while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_3))
     {
     }
+
     LL_DMA_ClearFlag_TC3(DMA1);
     LL_DMA_ClearFlag_HT3(DMA1);
     LL_DMA_ClearFlag_TE3(DMA1);
@@ -370,6 +371,8 @@ int i2s_start_blocks(void)
 
 // Тест: принять 8 блоков по 2048 байт в кольцевую очередь.
 // Не вызывайте во время реальной записи.
+#define I2S_TEST_RX_BLOCK_COUNT 4U
+
 void i2s_test_rx(void)
 {
     if (i2s_rx_start_block() != 0)
@@ -385,23 +388,25 @@ void i2s_test_rx(void)
         return;
     }
 
-    // Важно: за 8 блоков очередь заполнится, поэтому останавливаем
-    // приём сразу после достижения нужного количества блоков.
-    while (audio_rx_blocks < AUDIO_RING_BLOCK_COUNT && !i2s_rx_error)
+    while (audio_rx_blocks < I2S_TEST_RX_BLOCK_COUNT &&
+           !i2s_rx_error)
     {}
 
     i2s_stop();
 
+    SEGGER_RTT_printf(0,
+                      "RX blocks=%lu, overruns=%lu, ring_count=%lu\r\n",
+                      (unsigned long)audio_rx_blocks,
+                      (unsigned long)audio_rx_overruns,
+                      (unsigned long)ring_count(&audio_ring));
+
     if (i2s_rx_error)
     {
-        SEGGER_RTT_printf(0, "I2S RX DMA/ring error, overruns=%lu\r\n", (unsigned long)audio_rx_overruns);
+        SEGGER_RTT_printf(0, "I2S RX DMA/ring error\r\n");
         return;
     }
 
-    SEGGER_RTT_printf(0, "I2S RX: %lu blocks captured\r\n", (unsigned long)audio_rx_blocks);
-
-    // IRQ остановлен, поэтому ring_pop() здесь безопасен.
-    for (uint32_t block = 0; block < AUDIO_RING_BLOCK_COUNT; block++)
+    for (uint32_t block = 0; block < I2S_TEST_RX_BLOCK_COUNT; block++)
     {
         if (!ring_pop(&audio_ring, audio_read_buffer))
         {
@@ -409,9 +414,11 @@ void i2s_test_rx(void)
             break;
         }
 
-        // Печатаем первые 20 PCM-слов каждого блока, не все 8192 слов.
-        const int16_t *pcm = (const int16_t *)(const void *)audio_read_buffer;
-        SEGGER_RTT_printf(0, "Block %lu: ", (unsigned long)block);
+        const int16_t *pcm = (const int16_t *)audio_read_buffer;
+
+        SEGGER_RTT_printf(0,
+                          "Block %lu: ",
+                          (unsigned long)block);
 
         for (uint32_t i = 0; i < 20U; i++)
         {

@@ -11,6 +11,7 @@
 #include "storage/fs.h"
 #include "../lib/Helix/src/pub/mp3dec.h"
 #include "media/mp3_decoder.h"
+#include "media/wav_encoder.h"
 
 #define AMP_PORT        GPIOB
 #define APB_PIN         LL_GPIO_PIN_6
@@ -27,54 +28,101 @@ void diskio_set_sd_card(sd_card_info_t *info);
 
 
 void periph_init();
-int main(void) 
-{       
+static volatile uint32_t uptime_ms = 0;
+
+#define RECORDING 0
+
+int main(void)
+{
     periph_init();
     fs_unit(true);
     tusb_init();
+
     ButtonStatus button_status;
 
-    
     mux_select(2, MUX_CHANNEL_X1);
     aic3104_init();
     aic3104_init_clocking();
     aic3104_line1lp_toi2c();
     i2s_dma_init();
-    i2s_test_tx();
-    // aic3104_read_adc_status();
 
+    #if RECORDING
+    FRESULT result = wav_recording_start("record.wav");
+    bool recording = (result == FR_OK);
+    uint32_t recording_start_ms = uptime_ms;
 
-    while (1) 
+    if (!recording)
+    {
+        SEGGER_RTT_printf(0, "WAV start error: %d\r\n", (int)result);
+    }
+    #endif
+
+    while (1)
     {
         tud_task();
 
-        button_status = poll_button_events();
-        if(button_status.ready == 1)
+            #if RECORDING
+        if (recording)
         {
-            if(button_status.VD1 == DOUBLE_SHORT)
+            if ((uint32_t)(uptime_ms - recording_start_ms) >= 10000U)
+            {
+                result = wav_recording_end();
+                recording = false;
+
+                SEGGER_RTT_printf(0,
+                                  "WAV recording finished: %d\r\n",
+                                  (int)result);
+            }
+            else
+            {
+                result = wav_recording_task();
+
+                if (result != FR_OK)
+                {
+                    FRESULT end_result = wav_recording_end();
+                    recording = false;
+
+                    SEGGER_RTT_printf(0,
+                                      "WAV write error: %d, end: %d\r\n",
+                                      (int)result,
+                                      (int)end_result);
+                }
+            }
+        }
+        #endif
+
+        button_status = poll_button_events();
+
+        if (button_status.ready == 1)
+        {
+            if (button_status.VD1 == DOUBLE_SHORT)
             {
                 message_counter++;
             }
         }
-        if(can_send_command())
+
+        if (can_send_command())
         {
             send_SetLedState(UART4);
         }
     }
-    
 }
-
 
 void SysTick_Handler(void)
 {
-    // if(tick_counter % 1000 == 0)
-    // {
-    //     SEGGER_RTT_printf(0, "messages received: %u \r\n", message_counter);
-    //     tick_counter = 0;
-    // }
-    // tick_counter++;
-}
+    uptime_ms++;
 
+    tick_counter++;
+
+    if (tick_counter >= 1000U)
+    {
+        tick_counter = 0;
+
+        // SEGGER_RTT_printf(0,
+        //                   "messages received: %u\r\n",
+        //                   message_counter);
+    }
+}
 void periph_init()
 {
     // Инициализация RTT (SEGGER RTT)

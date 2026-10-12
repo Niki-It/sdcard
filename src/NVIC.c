@@ -21,10 +21,6 @@ void NVIC_Init(void){
     led_controller_nvic_init();
 }
 
-void SPI2_IRQHandler(void) {
-    I2S2_Callback();
-}
-
 void USART2_IRQHandler(void)
 {
     usart2_handler();

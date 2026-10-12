@@ -41,7 +41,6 @@ int main(void)
     aic3104_line1lp_toi2c();
     i2s_dma_init();
     i2s_test_tx();
-    //I2S2_StartTransmitIT();
     // aic3104_read_adc_status();
 
 
@@ -94,7 +93,6 @@ void periph_init()
     LedController_PeriphInit();
 
     soft_i2c_init();
-    I2S2_Init();
 
     sd_status_t status = sd_init(&card_info);
     if (status != SD_OK)

@@ -31,8 +31,8 @@ static volatile uint8_t i2s_rx_done = 0;
 static volatile uint8_t i2s_tx_error = 0;
 static volatile uint8_t i2s_rx_error = 0;
 static volatile uint8_t i2s_transfer_active = 0;
-static volatile uint32_t audio_rx_overruns = 0;
-static volatile uint32_t audio_rx_blocks = 0;
+volatile uint32_t audio_rx_overruns = 0;
+ volatile uint32_t audio_rx_blocks = 0;
 
 // DMA1 Stream 3 / Channel 0: SPI2_RX
 void i2s_dma_init_rx(void)
@@ -192,6 +192,7 @@ void i2s_stop(void)
     {}
 
     i2s_transfer_active = 0;
+
 }
 
 void DMA1_Stream3_IRQHandler(void)

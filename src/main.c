@@ -30,7 +30,8 @@ void diskio_set_sd_card(sd_card_info_t *info);
 void periph_init();
 static volatile uint32_t uptime_ms = 0;
 
-#define RECORDING 0
+#define RECORDING 1
+#define TUSB 0
 
 int main(void)
 {
@@ -59,12 +60,14 @@ int main(void)
 
     while (1)
     {
+         #if TUSB
         tud_task();
+        #endif
 
             #if RECORDING
         if (recording)
         {
-            if ((uint32_t)(uptime_ms - recording_start_ms) >= 10000U)
+            if ((uint32_t)(uptime_ms - recording_start_ms) >= 20000U)
             {
                 result = wav_recording_end();
                 recording = false;
@@ -91,20 +94,20 @@ int main(void)
         }
         #endif
 
-        button_status = poll_button_events();
+        // button_status = poll_button_events();
 
-        if (button_status.ready == 1)
-        {
-            if (button_status.VD1 == DOUBLE_SHORT)
-            {
-                message_counter++;
-            }
-        }
+        // if (button_status.ready == 1)
+        // {
+        //     if (button_status.VD1 == DOUBLE_SHORT)
+        //     {
+        //         message_counter++;
+        //     }
+        // }
 
-        if (can_send_command())
-        {
-            send_SetLedState(UART4);
-        }
+        // if (can_send_command())
+        // {
+        //     send_SetLedState(UART4);
+        // }
     }
 }
 
@@ -117,10 +120,6 @@ void SysTick_Handler(void)
     if (tick_counter >= 1000U)
     {
         tick_counter = 0;
-
-        // SEGGER_RTT_printf(0,
-        //                   "messages received: %u\r\n",
-        //                   message_counter);
     }
 }
 void periph_init()

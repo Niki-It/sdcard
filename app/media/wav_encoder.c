@@ -201,6 +201,10 @@ FRESULT wav_recording_start(const TCHAR *filename)
     return FR_OK;
 }
 
+volatile uint32_t wav_write_last_us = 0;
+volatile uint32_t wav_write_max_us = 0;
+volatile uint32_t wav_write_calls = 0;
+
 FRESULT wav_recording_task(void)
 {
     if (!file_open)
@@ -216,7 +220,21 @@ FRESULT wav_recording_task(void)
         return FR_OK;
     }
 
+    uint32_t start = perf_counter_now();
+
     FRESULT result = write_block();
+
+    uint32_t cycles = perf_counter_elapsed(start);
+    uint32_t elapsed_us = perf_counter_cycles_to_us(cycles);
+
+    wav_write_last_us = elapsed_us;
+
+    if (elapsed_us > wav_write_max_us)
+    {
+        wav_write_max_us = elapsed_us;
+    }
+    wav_write_calls++;
+
     if (result != FR_OK)
     {
         recording_error = result;

@@ -10,6 +10,7 @@ set(SOURCES
     "app/media/wav_decoder.c"
     "app/media/wav_encoder.c"
     "app/mux.c"
+    "app/perf_counter/perf_counter.c"
     "app/sdio/sdio.c"
     "app/sdio/sdio_ll.c"
     "app/sdio/sdio_ll_dma.c"

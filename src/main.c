@@ -148,4 +148,5 @@ void periph_init()
         return;
     }
     diskio_set_sd_card(&card_info);
+    perf_counter_init();
 }

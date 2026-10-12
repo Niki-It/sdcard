@@ -12,6 +12,7 @@
 #include "../lib/Helix/src/pub/mp3dec.h"
 #include "media/mp3_decoder.h"
 #include "media/wav_encoder.h"
+#include "perf_counter/perf_counter.h"
 
 #define AMP_PORT        GPIOB
 #define APB_PIN         LL_GPIO_PIN_6

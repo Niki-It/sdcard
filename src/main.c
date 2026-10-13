@@ -33,12 +33,11 @@ int main(void)
     fs_unit(true);
     tusb_init();
     ButtonStatus button_status;
-//    I2S2_StartTransmitIT();
+    I2S2_StartTransmitIT();
     mux_select(2, MUX_CHANNEL_X1);
     aic3104_init();
     aic3104_init_clocking();
-    aic3104_line1lp_toi2c();
-    // aic3104_read_adc_status();
+    aic3104_line1lp_to_i2s();
 
     process_mp3();
     while (1) 

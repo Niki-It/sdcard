@@ -7,8 +7,8 @@
                 "${workspaceFolder}/core",
                 "${workspaceFolder}/drivers",
                 "${workspaceFolder}/src",
-                "C:/Program Files (x86)/Arm/GNU Toolchain mingw-w64-i686-arm-none-eabi/arm-none-eabi/include",
-                "C:/Program Files (x86)/Arm/GNU Toolchain mingw-w64-i686-arm-none-eabi/lib/gcc/arm-none-eabi/15.3.1/include"
+                "C:/Program Files/Arm/GNU Toolchain mingw-w64-x86_64-arm-none-eabi/arm-none-eabi/include",
+                "C:/Program Files/Arm/GNU Toolchain mingw-w64-x86_64-arm-none-eabi/lib/gcc/arm-none-eabi/15.3.1/include"
             ],
             "defines": [
                 "STM32F405xx",
@@ -17,7 +17,7 @@
             ],
             "compileCommands": "${workspaceFolder}/build/compile_commands.json",
             "intelliSenseMode": "gcc-arm",
-            "compilerPath": "C:/Program Files (x86)/Arm/GNU Toolchain mingw-w64-i686-arm-none-eabi/bin/arm-none-eabi-gcc.exe",
+            "compilerPath": "C:/Program Files/Arm/GNU Toolchain mingw-w64-x86_64-arm-none-eabi/bin/arm-none-eabi-gcc.exe",
             "cStandard": "c17",
             "cppStandard": "c++17"
         }

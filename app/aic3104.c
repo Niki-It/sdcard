@@ -65,7 +65,7 @@ void aic3104_init_analog_bypass(void)
     aic3104_write_reg(0x41, 0x09);
 }
 
-void aic3104_line1lp_toi2c(void)
+void aic3104_line1lp_to_i2s(void)
 {
     aic3104_write_reg(0x00, 0x00);
 
@@ -76,23 +76,10 @@ void aic3104_line1lp_toi2c(void)
 
     aic3104_write_reg(0x0C, 0x00);
     aic3104_write_reg(107, 0x30);
-
-
 }
-void aic3104_line1rp_toi2c(void)
+void aic3104_line1rp_to_i2s(void)
 {
     aic3104_write_reg(0x00, 0x00);
 
     
-}
-void aic3104_read_adc_status(void)
-{
-    SEGGER_RTT_printf(0, "R3   = 0x%02X\r\n", aic3104_read_reg(3));
-    SEGGER_RTT_printf(0, "R8   = 0x%02X\r\n", aic3104_read_reg(8));
-    SEGGER_RTT_printf(0, "R9   = 0x%02X\r\n", aic3104_read_reg(9));
-    SEGGER_RTT_printf(0, "R15  = 0x%02X\r\n", aic3104_read_reg(15));
-    SEGGER_RTT_printf(0, "R19  = 0x%02X\r\n", aic3104_read_reg(19));
-    SEGGER_RTT_printf(0, "R36  = 0x%02X\r\n", aic3104_read_reg(36));
-    SEGGER_RTT_printf(0, "R101 = 0x%02X\r\n", aic3104_read_reg(101));
-    SEGGER_RTT_printf(0, "R107 = 0x%02X\r\n", aic3104_read_reg(107));
 }

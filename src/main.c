@@ -31,8 +31,8 @@ void diskio_set_sd_card(sd_card_info_t *info);
 void periph_init();
 static volatile uint32_t uptime_ms = 0;
 
-#define RECORDING 1
-#define TUSB 0
+#define RECORDING 0
+#define TUSB 1
 
 int main(void)
 {

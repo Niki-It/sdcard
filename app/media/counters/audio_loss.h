@@ -23,7 +23,7 @@ typedef struct
     audio_loss_entry_t loss_log[AUDIO_LOSS_LOG_CAPACITY];
 } audio_rx_stats_t;
 
-extern  audio_rx_stats_t audio_rx_stats;
+extern volatile audio_rx_stats_t audio_rx_stats;
 
 extern uint32_t audio_loss_current_blocks;
 extern uint32_t audio_loss_current_index;

@@ -3,3 +3,5 @@ CMakeFiles
 cfg_full.log
 .VSCodeCounter
 project.cfg
+.vscode/c_cpp_properites.json
+.vscode/launch.json

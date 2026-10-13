@@ -45,7 +45,7 @@ int main(void)
     mux_select(2, MUX_CHANNEL_X1);
     aic3104_init();
     aic3104_init_clocking();
-    aic3104_line1lp_toi2c();
+    aic3104_line1lp_to_i2s();
     i2s_dma_init();
 
     #if RECORDING

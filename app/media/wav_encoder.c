@@ -120,6 +120,7 @@ static FRESULT finish_header(void)
     return write_exact(&data_size, (UINT)sizeof(data_size));
 }
 
+
 static FRESULT write_block(void)
 {
     if (data_size > WAV_MAX_DATA_BYTES - WAV_RING_BLOCK_BYTES)
@@ -205,9 +206,28 @@ FRESULT wav_recording_start(const TCHAR *filename)
 volatile uint32_t wav_write_last_us = 0;
 volatile uint32_t wav_write_max_us = 0;
 volatile uint32_t wav_write_calls = 0;
+volatile uint32_t wav_ring_before_write = 0;
+volatile uint32_t wav_ring_at_max_write = 0;
 
+static uint32_t ring_count_safe(void)
+{
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+
+    uint32_t count = (uint32_t)ring_count(&audio_ring);
+
+    __set_PRIMASK(primask);
+    return count;
+}
+
+volatile uint32_t wav_write_started_cycles = 0;
+volatile uint32_t wav_write_active = 0;
+
+volatile uint32_t write_time_us[2048];
+volatile uint32_t write_time_count = 0;
 FRESULT wav_recording_task(void)
 {
+
     if (!file_open)
     {
         return FR_NOT_READY;
@@ -221,20 +241,34 @@ FRESULT wav_recording_task(void)
         return FR_OK;
     }
 
+    uint32_t queued = ring_count_safe();
+    wav_ring_before_write = queued;
+
     uint32_t start = perf_counter_now();
+    wav_write_started_cycles = start;
+    wav_write_active = 1;
 
     FRESULT result = write_block();
 
-    uint32_t cycles = perf_counter_elapsed(start);
-    uint32_t elapsed_us = perf_counter_cycles_to_us(cycles);
+    uint32_t elapsed_us =
+        perf_counter_cycles_to_us(perf_counter_elapsed(start));
+    wav_write_active = 0;
 
     wav_write_last_us = elapsed_us;
+
+    if (write_time_count < 2048U)
+    {
+        write_time_us[write_time_count++] = elapsed_us;
+    }
 
     if (elapsed_us > wav_write_max_us)
     {
         wav_write_max_us = elapsed_us;
+        wav_ring_at_max_write = queued;
     }
+
     wav_write_calls++;
+
 
     if (result != FR_OK)
     {

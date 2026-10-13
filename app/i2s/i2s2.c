@@ -10,13 +10,14 @@
 #include "stm32f4xx_ll_spi.h"
 #include "SEGGER_RTT.h"
 #include <circular/ring.h>
+#include "perf_counter/perf_counter.h"
 
 #define I2S_BUFFER_SAMPLES     1024U
 #define I2S_RX_BUFFER_BYTES    4096U
 #define I2S_RX_BUFFER_SAMPLES  (I2S_RX_BUFFER_BYTES / 2U)
 #define I2S_RX_HALF_SAMPLES    (I2S_RX_BUFFER_SAMPLES / 2U)
 #define AUDIO_RING_BLOCK_SIZE  (I2S_RX_BUFFER_BYTES / 2U)
-#define AUDIO_RING_BLOCK_COUNT 8U
+#define AUDIO_RING_BLOCK_COUNT 32U
 
 static uint16_t i2s_tx_buffer[I2S_BUFFER_SAMPLES];
 
@@ -33,6 +34,8 @@ static volatile uint8_t i2s_rx_error = 0;
 static volatile uint8_t i2s_transfer_active = 0;
 volatile uint32_t audio_rx_overruns = 0;
  volatile uint32_t audio_rx_blocks = 0;
+
+
 
 // DMA1 Stream 3 / Channel 0: SPI2_RX
 void i2s_dma_init_rx(void)
@@ -195,6 +198,18 @@ void i2s_stop(void)
 
 }
 
+volatile uint32_t rx_overrun_write_active = 0;
+volatile uint32_t rx_overrun_elapsed_cycles = 0;
+volatile uint32_t stallen_us = 0;
+
+extern volatile uint32_t wav_write_started_cycles;
+extern volatile uint32_t wav_write_active;
+
+volatile uint32_t rx_time_us[2048];
+volatile uint32_t rx_time_count = 0;
+static uint32_t rx_prev_cycles = 0;
+static bool rx_prev_valid = false;
+
 void DMA1_Stream3_IRQHandler(void)
 {
     if (LL_DMA_IsActiveFlag_TE3(DMA1) ||
@@ -214,12 +229,37 @@ void DMA1_Stream3_IRQHandler(void)
     {
         LL_DMA_ClearFlag_HT3(DMA1);
 
+        uint32_t now = perf_counter_now();
+
+        if (rx_prev_valid && rx_time_count < 2024U)
+        {
+            rx_time_us[rx_time_count++] =
+                perf_counter_cycles_to_us(now - rx_prev_cycles);
+        }
+
+        rx_prev_cycles = now;
+        rx_prev_valid = true;
+
         if (!ring_push(&audio_ring, (uint8_t *)&i2s_rx_buffer[0]))
         {
             audio_rx_overruns++;
             i2s_rx_error = 1;
             LL_SPI_DisableDMAReq_RX(SPI2);
-            return;
+
+            rx_overrun_write_active = wav_write_active;
+
+            if (wav_write_active)
+            {
+                rx_overrun_elapsed_cycles =
+                    perf_counter_elapsed(wav_write_started_cycles);
+            }
+            else
+            {
+                rx_overrun_elapsed_cycles = 0;
+            }
+            stallen_us =
+                perf_counter_cycles_to_us(rx_overrun_elapsed_cycles);
+            return; 
         }
 
         audio_rx_blocks++;
@@ -235,6 +275,21 @@ void DMA1_Stream3_IRQHandler(void)
             audio_rx_overruns++;
             i2s_rx_error = 1;
             LL_SPI_DisableDMAReq_RX(SPI2);
+
+            rx_overrun_write_active = wav_write_active;
+
+            if (wav_write_active)
+            {
+                rx_overrun_elapsed_cycles =
+                    perf_counter_elapsed(wav_write_started_cycles);
+            }
+            else
+            {
+                rx_overrun_elapsed_cycles = 0;
+            }
+            stallen_us =
+                perf_counter_cycles_to_us(rx_overrun_elapsed_cycles);
+
             return;
         }
 

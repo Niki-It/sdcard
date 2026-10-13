@@ -68,7 +68,7 @@ int main(void)
             #if RECORDING
         if (recording)
         {
-            if ((uint32_t)(uptime_ms - recording_start_ms) >= 20000U)
+            if ((uint32_t)(uptime_ms - recording_start_ms) >= 600000U)
             {
                 result = wav_recording_end();
                 recording = false;

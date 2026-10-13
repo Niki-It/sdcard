@@ -11,6 +11,7 @@
 #include "SEGGER_RTT.h"
 #include <circular/ring.h>
 #include "perf_counter/perf_counter.h"
+#include "media/counters/audio_loss.h"
 
 #define I2S_BUFFER_SAMPLES     1024U
 #define I2S_RX_BUFFER_BYTES    4096U
@@ -25,6 +26,11 @@ static uint16_t i2s_rx_buffer[I2S_RX_BUFFER_SAMPLES];
 static uint8_t audio_ring_storage[AUDIO_RING_BLOCK_SIZE * AUDIO_RING_BLOCK_COUNT];
 static uint8_t audio_read_buffer[AUDIO_RING_BLOCK_SIZE];
 
+audio_rx_stats_t audio_rx_stats = {0};
+
+uint32_t audio_loss_current_blocks = 0;
+uint32_t audio_loss_current_index = UINT32_MAX;
+
 ring_t audio_ring;
 
 static volatile uint8_t i2s_tx_done = 0;
@@ -33,8 +39,7 @@ static volatile uint8_t i2s_tx_error = 0;
 static volatile uint8_t i2s_rx_error = 0;
 static volatile uint8_t i2s_transfer_active = 0;
 volatile uint32_t audio_rx_overruns = 0;
- volatile uint32_t audio_rx_blocks = 0;
-
+volatile uint32_t audio_rx_blocks = 0;
 
 
 // DMA1 Stream 3 / Channel 0: SPI2_RX
@@ -210,6 +215,74 @@ volatile uint32_t rx_time_count = 0;
 static uint32_t rx_prev_cycles = 0;
 static bool rx_prev_valid = false;
 
+
+static bool audio_rx_push(uint8_t *block)
+{
+    ring_push_result_t result =
+        ring_push_latest(&audio_ring, block);
+
+    if (result == RING_PUSH_ERROR)
+    {
+        i2s_rx_error = 1;
+        LL_SPI_DisableDMAReq_RX(SPI2);
+        return false;
+    }
+
+    audio_rx_stats.rx_blocks++;
+
+    if (result == RING_PUSH_ADDED)
+    {
+        // Блок добавлен без потери — текущая серия закончилась.
+        audio_loss_current_blocks = 0;
+        audio_loss_current_index = UINT32_MAX;
+        return true;
+    }
+
+    // Замена вытеснила один ранее принятый блок.
+    audio_rx_stats.overruns++;
+
+    if (audio_loss_current_blocks == 0U)
+    {
+        // Начало новой серии потерь.
+        audio_rx_stats.loss_series_count++;
+
+        uint32_t index = audio_rx_stats.loss_log_count;
+
+        if (index < AUDIO_LOSS_LOG_CAPACITY)
+        {
+            audio_loss_current_index = index;
+
+            audio_rx_stats.loss_log[index].first_rx_event =
+                audio_rx_stats.rx_blocks;
+
+            audio_rx_stats.loss_log[index].lost_blocks = 0;
+
+            audio_rx_stats.loss_log_count = index + 1U;
+        }
+        else
+        {
+            audio_loss_current_index = UINT32_MAX;
+            audio_rx_stats.loss_unlogged_series++;
+        }
+    }
+
+    audio_loss_current_blocks++;
+
+    if (audio_loss_current_index != UINT32_MAX)
+    {
+        audio_rx_stats.loss_log[audio_loss_current_index].lost_blocks =
+            audio_loss_current_blocks;
+    }
+
+    if (audio_loss_current_blocks > audio_rx_stats.loss_max_blocks)
+    {
+        audio_rx_stats.loss_max_blocks = audio_loss_current_blocks;
+    }
+
+    return true;
+}
+/// @brief Прием данных по I2S по блокам и копирование в ring buffer
+/// @param  
 void DMA1_Stream3_IRQHandler(void)
 {
     if (LL_DMA_IsActiveFlag_TE3(DMA1) ||
@@ -296,7 +369,8 @@ void DMA1_Stream3_IRQHandler(void)
         audio_rx_blocks++;
     }
 }
-
+/// @brief Отправка данных по I2S
+/// @param  
 void DMA1_Stream4_IRQHandler(void)
 {
 
@@ -318,13 +392,18 @@ void DMA1_Stream4_IRQHandler(void)
 }
 
 // Подготавливаем RX DMA, но пока не запускаем I2S.
+static void audio_loss_reset(void)
+{
+    audio_rx_stats = (audio_rx_stats_t){0};
 
+    audio_loss_current_blocks = 0;
+    audio_loss_current_index = UINT32_MAX;
+}
 int i2s_rx_start_block(void)
 {
 
     if (i2s_transfer_active)
     {
-
         return -1;
     }
     LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_3);
@@ -343,8 +422,7 @@ int i2s_rx_start_block(void)
                          I2S_RX_BUFFER_SAMPLES);
 
     ring_clear(&audio_ring);
-    audio_rx_overruns = 0;
-    audio_rx_blocks = 0;
+    audio_loss_reset();
     i2s_rx_done = 0;
 
     i2s_rx_error = 0;

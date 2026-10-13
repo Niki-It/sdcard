@@ -5,6 +5,7 @@
 #include "circular/ring.h"       /* Change this include to your ring_t header. */
 #include "stm32f4xx.h"  /* CMSIS interrupt intrinsics. */
 #include "perf_counter/perf_counter.h"
+#include "counters/audio_loss.h"
 
 extern ring_t audio_ring;
 extern int i2s_rx_start_block(void);

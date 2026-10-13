@@ -41,6 +41,43 @@ bool ring_push(ring_t *ring, uint8_t *block)
     ring->used_count++;
     return true;
 }
+ring_push_result_t ring_push_latest(ring_t *ring, uint8_t *block)
+{
+    if (ring == NULL ||
+        block == NULL ||
+        ring->storage == NULL ||
+        ring->block_size == 0U ||
+        ring->block_count == 0U ||
+        ring->used_count > ring->block_count ||
+        ring->write_index >= ring->block_count ||
+        ring->read_index >= ring->block_count)
+    {
+        return RING_PUSH_ERROR;
+    }
+
+    if (ring->used_count < ring->block_count)
+    {
+        return ring_push(ring, block)
+                   ? RING_PUSH_ADDED
+                   : RING_PUSH_ERROR;
+    }
+
+    // Очередь полна.
+    // write_index указывает на следующее место добавления.
+    // Самый новый блок находится непосредственно перед ним.
+    uint32_t last_index =
+        (ring->write_index == 0U)
+            ? ring->block_count - 1U
+            : ring->write_index - 1U;
+
+    memcpy(ring->storage +
+               (size_t)last_index * ring->block_size,
+           block,
+           ring->block_size);
+
+    // Количество блоков и индексы остаются прежними.
+    return RING_PUSH_REPLACED;
+}
 
 bool ring_pop(ring_t *ring, uint8_t *block)
 {

@@ -24,7 +24,7 @@ target_include_directories(${PROJECT_NAME}.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/app
     ${CMAKE_SOURCE_DIR}/core
     ${CMAKE_SOURCE_DIR}/drivers
-    ${CMAKE_SOURCE_DIR}/src   
+    ${CMAKE_SOURCE_DIR}/src    
 )
 
 # Подключение библиотек

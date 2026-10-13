@@ -25,5 +25,5 @@ typedef struct
 
 extern  audio_rx_stats_t audio_rx_stats;
 
-extern uint32_t audio_loss_current_blocks = 0;
-extern uint32_t audio_loss_current_index = UINT32_MAX;
+extern uint32_t audio_loss_current_blocks;
+extern uint32_t audio_loss_current_index;

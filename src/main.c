@@ -61,14 +61,14 @@ int main(void)
 
     while (1)
     {
-         #if TUSB
+        #if TUSB
         tud_task();
         #endif
 
-            #if RECORDING
+        #if RECORDING
         if (recording)
         {
-            if ((uint32_t)(uptime_ms - recording_start_ms) >= 600000U)
+            if ((uint32_t)(uptime_ms - recording_start_ms) >= 10000U)
             {
                 result = wav_recording_end();
                 recording = false;

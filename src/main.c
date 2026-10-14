@@ -33,7 +33,7 @@ void periph_init();
 static volatile uint32_t uptime_ms = 0;
 
 #define RECORDING 0
-#define PLAYBACK 0
+#define PLAYBACK 1
 #define TUSB 0
 
 int main(void)
@@ -41,16 +41,14 @@ int main(void)
     periph_init();
     fs_unit(true);
     tusb_init();
-
     ButtonStatus button_status;
-
     mux_select(2, MUX_CHANNEL_X1);
     aic3104_init();
     aic3104_init_clocking();
-    aic3104_line1lp_to_i2s();
     i2s_dma_init();
 
 #if RECORDING
+    aic3104_line1lp_to_i2s();
     FRESULT result = wav_recording_start("record.wav");
     bool recording = (result == FR_OK);
     uint32_t recording_start_ms = uptime_ms;
@@ -62,6 +60,7 @@ int main(void)
 #endif
 
 #if PLAYBACK
+    aic3104_i2s_to_hplout();
     FRESULT playback_result = wav_playback_start("record.wav");
     bool playback = (playback_result == FR_OK);
 

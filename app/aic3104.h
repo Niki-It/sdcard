@@ -33,5 +33,6 @@ void aic3104_init_clocking(void);
 void aic3104_init_analog_bypass(void);
 void aic3104_line1lp_to_i2s(void);
 void aic3104_line1rp_to_i2s(void);
+void aic3104_i2s_to_hplout();
 
 #endif

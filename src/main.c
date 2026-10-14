@@ -13,6 +13,7 @@
 #include "media/mp3_decoder.h"
 #include "media/wav_encoder.h"
 #include "perf_counter/perf_counter.h"
+#include "media/wav_decoder.h"
 
 #define AMP_PORT        GPIOB
 #define APB_PIN         LL_GPIO_PIN_6
@@ -32,7 +33,8 @@ void periph_init();
 static volatile uint32_t uptime_ms = 0;
 
 #define RECORDING 0
-#define TUSB 1
+#define PLAYBACK 0
+#define TUSB 0
 
 int main(void)
 {
@@ -48,7 +50,7 @@ int main(void)
     aic3104_line1lp_to_i2s();
     i2s_dma_init();
 
-    #if RECORDING
+#if RECORDING
     FRESULT result = wav_recording_start("record.wav");
     bool recording = (result == FR_OK);
     uint32_t recording_start_ms = uptime_ms;
@@ -57,7 +59,21 @@ int main(void)
     {
         SEGGER_RTT_printf(0, "WAV start error: %d\r\n", (int)result);
     }
-    #endif
+#endif
+
+#if PLAYBACK
+    FRESULT playback_result = wav_playback_start("record.wav");
+    bool playback = (playback_result == FR_OK);
+
+    if (!playback)
+    {
+        SEGGER_RTT_printf(
+            0,
+            "WAV playback start error: %d\r\n",
+            (int)playback_result
+        );
+    }
+#endif
 
     while (1)
     {
@@ -95,6 +111,35 @@ int main(void)
         }
         #endif
 
+#if PLAYBACK
+        if (playback)
+        {
+            playback_result = wav_playback_task();
+
+            if (playback_result != FR_OK)
+            {
+                FRESULT end_result = wav_playback_end();
+                playback = false;
+
+                SEGGER_RTT_printf(
+                    0,
+                    "WAV playback error: %d, end: %d\r\n",
+                    (int)playback_result,
+                    (int)end_result
+                );
+            }
+            else if (!wav_playback_is_active())
+            {
+                playback = false;
+
+                /* Decoder уже остановил I2S и закрыл файл. */
+                SEGGER_RTT_printf(
+                    0,
+                    "WAV playback finished\r\n"
+                );
+            }
+        }
+#endif
         // button_status = poll_button_events();
 
         // if (button_status.ready == 1)

@@ -29,6 +29,7 @@ typedef enum
     I2S_TX_ARMED,
     I2S_TX_RUNNING
 } i2s_state_t;
+static volatile i2s_state_t state = I2S_IDLE;
 
 /*
  * Эти массивы должны находиться в обычной SRAM,
@@ -44,22 +45,31 @@ static uint8_t audio_ring_storage[
 
 ring_t audio_ring;
 
-static volatile i2s_state_t state = I2S_IDLE;
+
+
+typedef struct
+{
+    volatile uint8_t error;
+    volatile uint8_t done;
+
+    // всего блоков заявлено для передачи
+    uint32_t total_blocks;
+    // всего блоков загружено в ring и dma
+    uint32_t loaded_blocks;
+    // завершенных блоков - оправленных по DMA
+    uint32_t completed_blocks;
+
+    bool half_has_audio[2];
+    bool draining;
+
+    uint32_t expected_half;
+    uint32_t underruns;
+} i2s_tx_context_t;
+
+static volatile i2s_tx_context_t tx;
 
 static volatile uint8_t rx_error;
-static volatile uint8_t tx_error;
-static volatile uint8_t tx_done;
-
-/* Меняются перед запуском или внутри TX IRQ. */
-static uint32_t tx_total_blocks;
-static uint32_t tx_loaded_blocks;
-static uint32_t tx_completed_blocks;
-
-static bool tx_half_has_audio[2];
-static bool tx_draining;
-
 static uint32_t rx_expected_half;
-static uint32_t tx_expected_half;
 
 static uint32_t irq_lock(void)
 {
@@ -306,7 +316,7 @@ void i2s_dma_init(void)
             I2S_AUDIO_BLOCK_COUNT))
     {
         rx_error = 1U;
-        tx_error = 1U;
+        tx.error = 1U;
         return;
     }
 
@@ -320,7 +330,7 @@ void i2s_dma_init(void)
     NVIC_EnableIRQ(DMA1_Stream4_IRQn);
 
     rx_error = 0U;
-    tx_error = 0U;
+    tx.error = 0U;
     state = I2S_IDLE;
 }
 
@@ -339,13 +349,13 @@ bool i2s_rx_has_error(void)
 
 bool i2s_tx_has_error(void)
 {
-    return tx_error != 0U;
+    return tx.error != 0U;
 }
 
 
 bool i2s_tx_is_done(void)
 {
-    return tx_done != 0U;
+    return tx.done != 0U;
 }
 
 void i2s_stop(void)
@@ -385,7 +395,7 @@ void i2s_stop(void)
         {
             if (--limit == 0U)
             {
-                tx_error = 1U;
+                tx.error = 1U;
                 break;
             }
         }
@@ -445,22 +455,22 @@ int i2s_tx_prepare(uint32_t total_blocks)
     }
 
 
-    tx_error = 0U;
-    tx_done = 0U;
+    tx.error = 0U;
+    tx.done = 0U;
 
     #if AUDIO_LOSS_STATS
         audio_loss.tx_underruns = 0U;
     #endif
 
-    tx_total_blocks = total_blocks;
-    tx_loaded_blocks = 0U;
-    tx_completed_blocks = 0U;
+    tx.total_blocks = total_blocks;
+    tx.loaded_blocks = 0U;
+    tx.completed_blocks = 0U;
 
-    tx_half_has_audio[0] = false;
-    tx_half_has_audio[1] = false;
+    tx.half_has_audio[0] = false;
+    tx.half_has_audio[1] = false;
 
-    tx_draining = false;
-    tx_expected_half = 0U;
+    tx.draining = false;
+    tx.expected_half = 0U;
 
     memset(i2s_dma_buffer, 0, sizeof(i2s_dma_buffer));
 
@@ -477,14 +487,14 @@ static void tx_fill_half(uint32_t half)
 {
     uint16_t *destination = dma_half(half);
 
-    tx_half_has_audio[half] = false;
+    tx.half_has_audio[half] = false;
 
-    if (tx_loaded_blocks < tx_total_blocks)
+    if (tx.loaded_blocks < tx.total_blocks)
     {
         if (ring_pop(&audio_ring, destination))
         {
-            tx_loaded_blocks++;
-            tx_half_has_audio[half] = true;
+            tx.loaded_blocks++;
+            tx.half_has_audio[half] = true;
             return;
         }
 
@@ -505,7 +515,7 @@ int i2s_tx_init(void)
         return -1;
     }
 
-    uint32_t needed = tx_total_blocks >= 2U ? 2U : 1U;
+    uint32_t needed = tx.total_blocks >= 2U ? 2U : 1U;
 
     if (ring_count(&audio_ring) < needed)
     {
@@ -556,9 +566,9 @@ int i2s_start(void)
     while (LL_DMA_GetDataLength(DMA1, LL_DMA_STREAM_4) ==
            DMA_BUFFER_HALFWORDS)
     {
-        if (tx_error || --limit == 0U)
+        if (tx.error || --limit == 0U)
         {
-            tx_error = 1U;
+            tx.error = 1U;
             i2s_stop();
             return -1;
         }
@@ -668,14 +678,14 @@ void DMA1_Stream3_IRQHandler(void)
 
 static void tx_fail(void)
 {
-    tx_error = 1U;
+    tx.error = 1U;
     LL_SPI_DisableDMAReq_TX(I2S2ext);
     tx_clear_flags();
 }
 
 void DMA1_Stream4_IRQHandler(void)
 {
-    if (state != I2S_TX_RUNNING || tx_error)
+    if (state != I2S_TX_RUNNING || tx.error)
     {
         tx_clear_flags();
         return;
@@ -708,7 +718,7 @@ void DMA1_Stream4_IRQHandler(void)
 
     uint32_t half = ht ? 0U : 1U;
 
-    if (half != tx_expected_half ||
+    if (half != tx.expected_half ||
         !half_available(LL_DMA_STREAM_4, half))
     {
         tx_fail();
@@ -729,14 +739,14 @@ void DMA1_Stream4_IRQHandler(void)
      * половины DMA. За это время остаток звука выйдет
      *  ; DMA уже передаёт тишину.
      */
-    if (tx_draining)
+    if (tx.draining)
     {
-        tx_done = 1U;
+        tx.done = 1U;
     }
 
-    if (tx_half_has_audio[half])
+    if (tx.half_has_audio[half])
     {
-        tx_completed_blocks++;
+        tx.completed_blocks++;
     }
 
     tx_fill_half(half);
@@ -747,12 +757,12 @@ void DMA1_Stream4_IRQHandler(void)
         return;
     }
 
-    if (tx_completed_blocks == tx_total_blocks)
+    if (tx.completed_blocks == tx.total_blocks)
     {
-        tx_draining = true;
+        tx.draining = true;
     }
 
-    tx_expected_half ^= 1U;
+    tx.expected_half ^= 1U;
 
     /*
      * После tx_done DMA продолжает передавать нули,

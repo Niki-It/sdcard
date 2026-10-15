@@ -46,7 +46,6 @@ static uint8_t audio_ring_storage[
 ring_t audio_ring;
 
 
-
 typedef struct
 {
     volatile uint8_t error;
@@ -59,8 +58,8 @@ typedef struct
     // завершенных блоков - оправленных по DMA
     uint32_t completed_blocks;
 
+
     bool half_has_audio[2];
-    bool draining;
 
     uint32_t expected_half;
     uint32_t underruns;
@@ -334,30 +333,6 @@ void i2s_dma_init(void)
     state = I2S_IDLE;
 }
 
-
-bool i2s_is_busy(void)
-{
-    return state != I2S_IDLE;
-}
-
-
-bool i2s_rx_has_error(void)
-{
-    return rx_error != 0U;
-}
-
-
-bool i2s_tx_has_error(void)
-{
-    return tx.error != 0U;
-}
-
-
-bool i2s_tx_is_done(void)
-{
-    return tx.done != 0U;
-}
-
 void i2s_stop(void)
 {
     /*
@@ -469,7 +444,6 @@ int i2s_tx_prepare(uint32_t total_blocks)
     tx.half_has_audio[0] = false;
     tx.half_has_audio[1] = false;
 
-    tx.draining = false;
     tx.expected_half = 0U;
 
     memset(i2s_dma_buffer, 0, sizeof(i2s_dma_buffer));
@@ -515,13 +489,14 @@ int i2s_tx_init(void)
         return -1;
     }
 
-    uint32_t needed = tx.total_blocks >= 2U ? 2U : 1U;
+    uint32_t needed = 2U;
 
     if (ring_count(&audio_ring) < needed)
     {
         return -1;
     }
 
+    // Заполнить DMA буффер полностью до начала передачи
     tx_fill_half(0U);
     tx_fill_half(1U);
 
@@ -586,7 +561,6 @@ int i2s_start(void)
 
 /*
  * Проверяем, что DMA сейчас работает с другой половиной.
- * Это дополнительная защита от сильно задержанного IRQ.
  */
 static bool half_available(uint32_t stream, uint32_t half)
 {
@@ -672,6 +646,7 @@ void DMA1_Stream3_IRQHandler(void)
         return;
     }
 
+    // переключение половины с 0 на 1 и с 1 на 0
     rx_expected_half ^= 1U;
 }
 
@@ -716,6 +691,7 @@ void DMA1_Stream4_IRQHandler(void)
         return;
     }
 
+    // определяем половину которая завершилась
     uint32_t half = ht ? 0U : 1U;
 
     if (half != tx.expected_half ||
@@ -734,16 +710,8 @@ void DMA1_Stream4_IRQHandler(void)
         LL_DMA_ClearFlag_TC4(DMA1);
     }
 
-    /*
-     * После последнего аудиоблока ждём ещё одну границу
-     * половины DMA. За это время остаток звука выйдет
-     *  ; DMA уже передаёт тишину.
-     */
-    if (tx.draining)
-    {
-        tx.done = 1U;
-    }
 
+    // Добовляем к завершенным блокам только если это не пусты блоки (заполнители после основного аудио)
     if (tx.half_has_audio[half])
     {
         tx.completed_blocks++;
@@ -759,13 +727,37 @@ void DMA1_Stream4_IRQHandler(void)
 
     if (tx.completed_blocks == tx.total_blocks)
     {
-        tx.draining = true;
+        tx.done = true;
     }
 
+    // переключение половины с 0 на 1 и с 1 на 0
     tx.expected_half ^= 1U;
 
     /*
      * После tx_done DMA продолжает передавать нули,
      * пока main не вызовет i2s_stop().
      */
+}
+
+bool i2s_is_busy(void)
+{
+    return state != I2S_IDLE;
+}
+
+
+bool i2s_rx_has_error(void)
+{
+    return rx_error != 0U;
+}
+
+
+bool i2s_tx_has_error(void)
+{
+    return tx.error != 0U;
+}
+
+
+bool i2s_tx_is_done(void)
+{
+    return tx.done != 0U;
 }

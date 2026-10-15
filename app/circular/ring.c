@@ -80,7 +80,8 @@ static bool ring_valid_locked(const ring_t *ring)
 }
 
 
-/* index < block_count, blocks <= block_count. */
+/// @brief Продвигает индекс определенное ко-во блоков и если он заходит за буффер просто продолжает считать с начала
+/// @return 
 static uint32_t ring_advance(
     const ring_t *ring,
     uint32_t index,
@@ -94,7 +95,8 @@ static uint32_t ring_advance(
                : index + blocks;
 }
 
-
+/// @brief Получаем адрес блока внутри кольцевого буффера
+/// @return 
 static uint8_t *ring_block_address(
     const ring_t *ring,
     uint32_t index

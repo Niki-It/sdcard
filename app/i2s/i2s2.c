@@ -16,11 +16,8 @@
 
 #define DMA_BUFFER_BYTES       (2U * I2S_AUDIO_BLOCK_BYTES)
 #define DMA_BUFFER_HALFWORDS   (DMA_BUFFER_BYTES / 2U)
+// Половинка буффера DMA в словах
 #define DMA_HALF_HALFWORDS     (I2S_AUDIO_BLOCK_BYTES / 2U)
-
-#define RX_TIME_LOG_COUNT      2048U
-
-/* Ограничение ожидания аппаратных флагов, не миллисекунды. */
 #define HW_WAIT_LIMIT          1000000U
 
 typedef enum
@@ -46,7 +43,7 @@ static uint8_t audio_ring_storage[
 
 ring_t audio_ring;
 
-static bool initialized;
+
 static volatile i2s_state_t state = I2S_IDLE;
 
 static volatile uint8_t rx_error;
@@ -67,17 +64,7 @@ static uint32_t rx_expected_half;
 static uint32_t tx_expected_half;
 
 /* Сохранена диагностика RX из твоего файла. */
-volatile audio_rx_stats_t audio_rx_stats = {0};
-
-uint32_t audio_loss_current_blocks;
-uint32_t audio_loss_current_index = UINT32_MAX;
-
-volatile uint32_t rx_time_us[RX_TIME_LOG_COUNT];
-volatile uint32_t rx_time_count;
-
-static uint32_t rx_prev_cycles;
-static bool rx_prev_valid;
-
+volatile audio_rx_stats_t audio_loss = {0};
 
 static uint32_t irq_lock(void)
 {
@@ -95,7 +82,8 @@ static void irq_unlock(uint32_t key)
 }
 
 
-static uint16_t *dma_half(uint32_t half)
+// Можно получить либо 0 либо 1 половинку буффера DMA 
+static uint16_t* dma_half(uint32_t half)
 {
     return &i2s_dma_buffer[half * DMA_HALF_HALFWORDS];
 }
@@ -121,56 +109,6 @@ static void tx_clear_flags(void)
 }
 
 
-/* Вызывать при выключенном SPI2/I2S. */
-static void clear_i2s_status(void)
-{
-    volatile uint32_t dummy;
-
-    /* Очистка RXNE/OVR: DR, затем SR. */
-    dummy = SPI2->DR;
-    dummy = SPI2->SR;
-
-    /* Чтение SR очищает UDR перед новым TX. */
-    dummy = I2S2ext->SR;
-    (void)dummy;
-}
-
-
-static void audio_loss_reset(void)
-{
-    audio_rx_stats = (audio_rx_stats_t){0};
-
-    audio_loss_current_blocks = 0U;
-    audio_loss_current_index = UINT32_MAX;
-
-    rx_time_count = 0U;
-    rx_prev_cycles = 0U;
-    rx_prev_valid = false;
-}
-
-
-static void rx_log_interval(void)
-{
-    uint32_t now = perf_counter_now();
-
-    if (rx_prev_valid)
-    {
-        uint32_t index = rx_time_count;
-
-        if (index < RX_TIME_LOG_COUNT)
-        {
-            rx_time_us[index] =
-                perf_counter_cycles_to_us(now - rx_prev_cycles);
-
-            rx_time_count = index + 1U;
-        }
-    }
-
-    rx_prev_cycles = now;
-    rx_prev_valid = true;
-}
-
-
 static bool audio_rx_push(uint8_t *block)
 {
     ring_push_result_t result =
@@ -181,52 +119,51 @@ static bool audio_rx_push(uint8_t *block)
         return false;
     }
 
-    audio_rx_stats.rx_blocks++;
+    audio_loss.rx_blocks++;
 
     if (result == RING_PUSH_ADDED)
     {
-        audio_loss_current_blocks = 0U;
-        audio_loss_current_index = UINT32_MAX;
+        audio_loss.current_blocks = 0U;
+        audio_loss.current_index = UINT32_MAX;
         return true;
     }
 
-    audio_rx_stats.overruns++;
+    audio_loss.overruns++;
 
-    if (audio_loss_current_blocks == 0U)
+    if (audio_loss.current_blocks == 0U)
     {
-        audio_rx_stats.loss_series_count++;
+        audio_loss.loss_series_count++;
 
-        uint32_t index = audio_rx_stats.loss_log_count;
+        uint32_t index = audio_loss.loss_log_count;
 
         if (index < AUDIO_LOSS_LOG_CAPACITY)
         {
-            audio_loss_current_index = index;
+            audio_loss.current_index = index;
 
-            audio_rx_stats.loss_log[index].first_rx_event =
-                audio_rx_stats.rx_blocks;
+            audio_loss.loss_log[index].first_rx_event =
+                audio_loss.rx_blocks;
 
-            audio_rx_stats.loss_log[index].lost_blocks = 0U;
-            audio_rx_stats.loss_log_count = index + 1U;
+            audio_loss.loss_log[index].lost_blocks = 0U;
+            audio_loss.loss_log_count = index + 1U;
         }
         else
         {
-            audio_loss_current_index = UINT32_MAX;
-            audio_rx_stats.loss_unlogged_series++;
+            audio_loss.current_index = UINT32_MAX;
+            audio_loss.loss_unlogged_series++;
         }
     }
+    audio_loss.current_blocks++;
 
-    audio_loss_current_blocks++;
-
-    if (audio_loss_current_index != UINT32_MAX)
+    if (audio_loss.current_index != UINT32_MAX)
     {
-        audio_rx_stats.loss_log[
-            audio_loss_current_index
-        ].lost_blocks = audio_loss_current_blocks;
+        audio_loss.loss_log[
+            audio_loss.current_index
+        ].lost_blocks = audio_loss.current_blocks;
     }
 
-    if (audio_loss_current_blocks > audio_rx_stats.loss_max_blocks)
+    if (audio_loss.current_blocks > audio_loss.loss_max_blocks)
     {
-        audio_rx_stats.loss_max_blocks = audio_loss_current_blocks;
+        audio_loss.loss_max_blocks = audio_loss.current_blocks;
     }
 
     return true;
@@ -329,10 +266,6 @@ static void configure_tx_dma(void)
 
 void i2s_dma_init(void)
 {
-    if (initialized)
-    {
-        return;
-    }
 
     LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_SPI2);
     LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
@@ -346,18 +279,9 @@ void i2s_dma_init(void)
     LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_3);
     LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_4);
 
-    uint32_t limit = HW_WAIT_LIMIT;
-
     while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_3) ||
            LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_4))
-    {
-        if (--limit == 0U)
-        {
-            rx_error = 1U;
-            tx_error = 1U;
-            return;
-        }
-    }
+    {}
 
     LL_I2S_InitTypeDef cfg = {0};
 
@@ -400,12 +324,9 @@ void i2s_dma_init(void)
     NVIC_EnableIRQ(DMA1_Stream3_IRQn);
     NVIC_EnableIRQ(DMA1_Stream4_IRQn);
 
-    clear_i2s_status();
-
     rx_error = 0U;
     tx_error = 0U;
     state = I2S_IDLE;
-    initialized = true;
 }
 
 
@@ -441,7 +362,6 @@ uint32_t i2s_tx_underrun_count(void)
     return result;
 }
 
-
 void i2s_stop(void)
 {
     /*
@@ -462,19 +382,9 @@ void i2s_stop(void)
 
     irq_unlock(key);
 
-    uint32_t limit = HW_WAIT_LIMIT;
-
     while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_3) ||
            LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_4))
-    {
-        if (--limit == 0U)
-        {
-            rx_error = 1U;
-            tx_error = 1U;
-            initialized = false;
-            break;
-        }
-    }
+    {}
 
     /*
      * Master ещё выдаёт такты.
@@ -482,7 +392,7 @@ void i2s_stop(void)
      */
     if (previous == I2S_TX_RUNNING)
     {
-        limit = HW_WAIT_LIMIT;
+        uint32_t limit = HW_WAIT_LIMIT;
 
         while (!LL_SPI_IsActiveFlag_TXE(I2S2ext) ||
                LL_SPI_IsActiveFlag_BSY(I2S2ext))
@@ -504,13 +414,12 @@ void i2s_stop(void)
     NVIC_ClearPendingIRQ(DMA1_Stream3_IRQn);
     NVIC_ClearPendingIRQ(DMA1_Stream4_IRQn);
 
-    clear_i2s_status();
 }
 
 
-int i2s_rx_start_block(void)
+int i2s_rx_init(void)
 {
-    if (!initialized || state != I2S_IDLE)
+    if (i2s_is_busy())
     {
         return -1;
     }
@@ -520,8 +429,7 @@ int i2s_rx_start_block(void)
         return -1;
     }
 
-    clear_i2s_status();
-    audio_loss_reset();
+    audio_loss_reset(&audio_loss);
 
     rx_error = 0U;
     rx_expected_half = 0U;
@@ -537,8 +445,7 @@ int i2s_rx_start_block(void)
 
 int i2s_tx_prepare(uint32_t total_blocks)
 {
-    if (!initialized ||
-        state != I2S_IDLE ||
+    if (i2s_is_busy() ||
         total_blocks == 0U)
     {
         return -1;
@@ -549,7 +456,6 @@ int i2s_tx_prepare(uint32_t total_blocks)
         return -1;
     }
 
-    clear_i2s_status();
 
     tx_error = 0U;
     tx_done = 0U;
@@ -598,7 +504,7 @@ static void tx_fill_half(uint32_t half)
 }
 
 
-int i2s_tx_start_block(void)
+int i2s_tx_init(void)
 {
     if (state != I2S_TX_PREPARED)
     {
@@ -625,7 +531,7 @@ int i2s_tx_start_block(void)
 }
 
 
-int i2s_start_blocks(void)
+int i2s_start(void)
 {
     if (state == I2S_RX_PREPARED)
     {
@@ -664,6 +570,7 @@ int i2s_start_blocks(void)
         }
     }
 
+    // Барьер
     __DSB();
 
     /* SPI2 в MASTER_RX генерирует CK/WS/MCLK для I2S2ext. */
@@ -697,15 +604,6 @@ static void rx_fail(void)
     LL_SPI_DisableDMAReq_RX(SPI2);
     rx_clear_flags();
 }
-
-
-static void tx_fail(void)
-{
-    tx_error = 1U;
-    LL_SPI_DisableDMAReq_TX(I2S2ext);
-    tx_clear_flags();
-}
-
 
 void DMA1_Stream3_IRQHandler(void)
 {
@@ -757,8 +655,6 @@ void DMA1_Stream3_IRQHandler(void)
         LL_DMA_ClearFlag_TC3(DMA1);
     }
 
-    rx_log_interval();
-
     if (!audio_rx_push((uint8_t *)dma_half(half)) ||
         !half_available(LL_DMA_STREAM_3, half))
     {
@@ -769,6 +665,13 @@ void DMA1_Stream3_IRQHandler(void)
     rx_expected_half ^= 1U;
 }
 
+
+static void tx_fail(void)
+{
+    tx_error = 1U;
+    LL_SPI_DisableDMAReq_TX(I2S2ext);
+    tx_clear_flags();
+}
 
 void DMA1_Stream4_IRQHandler(void)
 {
@@ -855,116 +758,4 @@ void DMA1_Stream4_IRQHandler(void)
      * После tx_done DMA продолжает передавать нули,
      * пока main не вызовет i2s_stop().
      */
-}
-
-
-void i2s_test_rx(void)
-{
-    if (i2s_rx_start_block() != 0)
-    {
-        SEGGER_RTT_printf(0, "RX prepare error\r\n");
-        return;
-    }
-
-    if (i2s_start_blocks() != 0)
-    {
-        i2s_stop();
-        return;
-    }
-
-    uint32_t started = perf_counter_now();
-
-    while (audio_rx_stats.rx_blocks < 4U &&
-           !i2s_rx_has_error())
-    {
-        if (perf_counter_cycles_to_us(
-                perf_counter_elapsed(started)) > 1000000U)
-        {
-            rx_error = 1U;
-            break;
-        }
-    }
-
-    i2s_stop();
-
-    SEGGER_RTT_printf(
-        0,
-        "RX blocks=%lu lost=%lu error=%u\r\n",
-        (unsigned long)audio_rx_stats.rx_blocks,
-        (unsigned long)audio_rx_stats.overruns,
-        (unsigned)i2s_rx_has_error()
-    );
-
-    /*
-     * DMA остановлен: общий буфер можно использовать
-     * и для просмотра принятых блоков.
-     */
-    for (uint32_t block = 0U; block < 4U; block++)
-    {
-        if (!ring_pop(&audio_ring, i2s_dma_buffer))
-        {
-            break;
-        }
-
-        SEGGER_RTT_printf(0, "Block %lu: ",
-                          (unsigned long)block);
-
-        for (uint32_t i = 0U; i < 20U; i++)
-        {
-            SEGGER_RTT_printf(
-                0, "%d ", (int)(int16_t)i2s_dma_buffer[i]
-            );
-        }
-
-        SEGGER_RTT_printf(0, "\r\n");
-    }
-}
-
-
-void i2s_test_tx(void)
-{
-    if (i2s_tx_prepare(1U) != 0)
-    {
-        SEGGER_RTT_printf(0, "TX prepare error\r\n");
-        return;
-    }
-
-    /* Короткий тест: stereo, меандр 1 кГц при Fs=48 кГц. */
-    for (uint32_t i = 0U; i < DMA_HALF_HALFWORDS; i += 2U)
-    {
-        uint32_t frame = i / 2U;
-
-        int16_t sample =
-            (frame % 48U) < 24U ? 8000 : -8000;
-
-        i2s_dma_buffer[i] = (uint16_t)sample;
-        i2s_dma_buffer[i + 1U] = (uint16_t)sample;
-    }
-
-    if (!ring_push(&audio_ring, i2s_dma_buffer) ||
-        i2s_tx_start_block() != 0 ||
-        i2s_start_blocks() != 0)
-    {
-        i2s_stop();
-        SEGGER_RTT_printf(0, "TX start error\r\n");
-        return;
-    }
-
-    uint32_t started = perf_counter_now();
-
-    while (!i2s_tx_is_done() && !i2s_tx_has_error())
-    {
-        if (perf_counter_cycles_to_us(
-                perf_counter_elapsed(started)) > 1000000U)
-        {
-            tx_error = 1U;
-            break;
-        }
-    }
-
-    i2s_stop();
-
-    SEGGER_RTT_printf(
-        0, "TX error=%u\r\n", (unsigned)i2s_tx_has_error()
-    );
 }

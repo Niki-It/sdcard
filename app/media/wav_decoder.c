@@ -417,8 +417,8 @@ FRESULT wav_playback_start(const TCHAR *filename)
         }
     }
 
-    if (i2s_tx_start_block() != 0 ||
-        i2s_start_blocks() != 0)
+    if (i2s_tx_init() != 0 ||
+        i2s_start() != 0)
     {
         return finish_playback(FR_NOT_READY, WAV_PLAYBACK_ERROR);
     }

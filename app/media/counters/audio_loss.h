@@ -21,9 +21,17 @@ typedef struct
     uint32_t loss_unlogged_series;
 
     audio_loss_entry_t loss_log[AUDIO_LOSS_LOG_CAPACITY];
+
+    uint32_t current_blocks;
+    uint32_t current_index;
 } audio_rx_stats_t;
 
 extern volatile audio_rx_stats_t audio_rx_stats;
 
-extern uint32_t audio_loss_current_blocks;
-extern uint32_t audio_loss_current_index;
+void audio_loss_reset(volatile audio_rx_stats_t* audio_loss)
+{
+    *audio_loss = (audio_rx_stats_t){0};
+
+    audio_loss->current_blocks = 0U;
+    audio_loss->current_index = UINT32_MAX;
+}

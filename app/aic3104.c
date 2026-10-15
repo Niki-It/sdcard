@@ -107,18 +107,38 @@ void aic3104_i2s_to_hplout(){
     // R37: включить Left DAC
     aic3104_write_reg(37, 0x80);
 
-    // R41: Left DAC -> DAC_L1
+    // R41: Left DAC -> DAC_L1, Right DAC -> DAC_R1
     aic3104_write_reg(41, 0x00);
 
     // R43: Left DAC, 0 dB, Mute OFF
     aic3104_write_reg(43, 0x00);
-
-    // R46: отключить аналоговый PGA_L от HPLOUT
-    aic3104_write_reg(46, 0x00);
 
     // R47: подключить DAC_L1 -> HPLOUT, 0 dB
     aic3104_write_reg(47, 0x80);
 
     // R51: HPLOUT Power ON, Mute OFF, 0 dB
     aic3104_write_reg(51, 0x0D);
+}
+
+void aic3104_i2s_to_hprout(){
+        // Page 0
+    aic3104_write_reg(0, 0x00);
+
+    // R7: Right DIN -> Right DAC, Normal Rate
+    aic3104_write_reg(7, 0x02);
+
+    // R37: включить Right DAC
+    aic3104_write_reg(37, 0x40);
+
+    // R41: Left DAC -> DAC_L1, Right DAC -> DAC_R1
+    aic3104_write_reg(41, 0x00);
+
+    // R43: Right DAC, 0 dB, Mute OFF
+    aic3104_write_reg(44, 0x00);
+
+    // R47: подключить DAC_L1 -> HPLOUT, 0 dB
+    aic3104_write_reg(64, 0x80);
+
+    // R51: HPLOUT Power ON, Mute OFF, 0 dB
+    aic3104_write_reg(65, 0x0D);
 }

@@ -60,7 +60,7 @@ int main(void)
 #endif
 
 #if PLAYBACK
-    aic3104_i2s_to_hplout();
+    aic3104_i2s_to_hprout();
     FRESULT playback_result = wav_playback_start("record.wav");
     bool playback = (playback_result == FR_OK);
 

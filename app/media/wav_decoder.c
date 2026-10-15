@@ -8,17 +8,14 @@
 #include "i2s/i2s2.h"
 #include "circular/ring.h"
 #include "perf_counter/perf_counter.h"
+#include "wav_encoder.h"
 
 /* Единственная внешняя переменная, связывающая модули. */
 extern ring_t audio_ring;
 
 #define WAV_HEADER_BYTES       44U
-#define WAV_SAMPLE_RATE        48000U
-#define WAV_CHANNELS           2U
-#define WAV_BITS_PER_SAMPLE    16U
 #define WAV_FRAME_BYTES        4U
 #define WAV_BYTE_RATE          192000U
-
 #define WAV_READ_BLOCKS        8U
 #define WAV_READ_BYTES \
     (WAV_READ_BLOCKS * I2S_AUDIO_BLOCK_BYTES)
@@ -45,30 +42,15 @@ static FRESULT playback_error = FR_OK;
 
 static wav_playback_stats_t playback_stats;
 
+_Static_assert(sizeof(wav_header_t) == WAV_HEADER_BYTES,
+               "WAV header must be 44 bytes");
+
 /*
  * Маленький буфер заголовка, не PCM-буфер.
  * static: не зависит от размещения стека.
  */
-static uint8_t header[WAV_HEADER_BYTES]
+static wav_header_t header
     __attribute__((aligned(4)));
-
-
-static uint16_t read_le16(const uint8_t *p)
-{
-    return (uint16_t)(
-        (uint16_t)p[0] |
-        ((uint16_t)p[1] << 8)
-    );
-}
-
-
-static uint32_t read_le32(const uint8_t *p)
-{
-    return (uint32_t)p[0] |
-           ((uint32_t)p[1] << 8) |
-           ((uint32_t)p[2] << 16) |
-           ((uint32_t)p[3] << 24);
-}
 
 
 /*
@@ -82,7 +64,7 @@ static FRESULT read_header(void)
 
     FRESULT result = f_read(
         &wav_file,
-        header,
+        &header,
         sizeof(header),
         &bytes_read
     );
@@ -97,27 +79,27 @@ static FRESULT read_header(void)
         return FR_INVALID_PARAMETER;
     }
 
-    if (memcmp(header + 0U,  "RIFF", 4U) != 0 ||
-        memcmp(header + 8U,  "WAVE", 4U) != 0 ||
-        memcmp(header + 12U, "fmt ", 4U) != 0 ||
-        memcmp(header + 36U, "data", 4U) != 0)
+    if (memcmp(header.riff,  "RIFF", 4U) != 0 ||
+        memcmp(header.wave,  "WAVE", 4U) != 0 ||
+        memcmp(header.fmt, "fmt ", 4U) != 0 ||
+        memcmp(header.data, "data", 4U) != 0)
     {
         return FR_INVALID_PARAMETER;
     }
 
-    if (read_le32(header + 16U) != 16U ||
-        read_le16(header + 20U) != 1U ||
-        read_le16(header + 22U) != WAV_CHANNELS ||
-        read_le32(header + 24U) != WAV_SAMPLE_RATE ||
-        read_le32(header + 28U) != WAV_BYTE_RATE ||
-        read_le16(header + 32U) != WAV_FRAME_BYTES ||
-        read_le16(header + 34U) != WAV_BITS_PER_SAMPLE)
+    if (header.fmt_size != 16U ||
+        header.audio_format != 1U ||
+        header.channels != WAV_CHANNELS ||
+        header.sample_rate != WAV_SAMPLE_RATE ||
+        header.byte_rate != WAV_BYTE_RATE ||
+        header.block_align != WAV_FRAME_BYTES ||
+        header.bits_per_sample != WAV_BITS_PER_SAMPLE)
     {
         return FR_INVALID_PARAMETER;
     }
 
-    uint32_t data_bytes = read_le32(header + 40U);
-    uint32_t riff_bytes = read_le32(header + 4U);
+    uint32_t data_bytes = header.data_size;
+    uint32_t riff_bytes = header.file_size;
 
     if (data_bytes % WAV_FRAME_BYTES != 0U)
     {
@@ -195,12 +177,11 @@ static FRESULT finish_playback(
     playback_error = result;
 
     playback_state = result == FR_OK
-                         ? final_state
-                         : WAV_PLAYBACK_ERROR;
+        ? final_state
+        : WAV_PLAYBACK_ERROR;
 
     return result;
 }
-
 
 /*
  * Выполняет максимум одно чтение.

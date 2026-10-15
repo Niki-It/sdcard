@@ -158,8 +158,11 @@ static FRESULT finish_playback(
     {
         i2s_stop();
 
+    #if AUDIO_LOSS_STATS
         playback_stats.underrun_blocks =
             i2s_tx_underrun_count();
+    #endif
+        
 
         if (result == FR_OK && i2s_tx_has_error())
         {
@@ -454,8 +457,10 @@ FRESULT wav_playback_task(void)
 
     FRESULT result = read_batch(&made_progress);
 
+    #if AUDIO_LOSS_STATS
     playback_stats.underrun_blocks =
         i2s_tx_underrun_count();
+    #endif
 
     if (result != FR_OK)
     {
@@ -519,6 +524,8 @@ void wav_playback_get_stats(wav_playback_stats_t *stats)
 
     if (owns_i2s)
     {
+        #if AUDIO_LOSS_STATS
         stats->underrun_blocks = i2s_tx_underrun_count();
+        #endif
     }
 }

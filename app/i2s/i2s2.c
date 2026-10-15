@@ -41,16 +41,14 @@ static uint8_t audio_ring_storage[
     I2S_AUDIO_BLOCK_BYTES * I2S_AUDIO_BLOCK_COUNT
 ] __attribute__((aligned(4)));
 
-ring_t audio_ring;
 
+ring_t audio_ring;
 
 static volatile i2s_state_t state = I2S_IDLE;
 
 static volatile uint8_t rx_error;
 static volatile uint8_t tx_error;
 static volatile uint8_t tx_done;
-
-static volatile uint32_t tx_underruns;
 
 /* Меняются перед запуском или внутри TX IRQ. */
 static uint32_t tx_total_blocks;
@@ -62,9 +60,6 @@ static bool tx_draining;
 
 static uint32_t rx_expected_half;
 static uint32_t tx_expected_half;
-
-/* Сохранена диагностика RX из твоего файла. */
-volatile audio_rx_stats_t audio_loss = {0};
 
 static uint32_t irq_lock(void)
 {
@@ -109,65 +104,65 @@ static void tx_clear_flags(void)
 }
 
 
-static bool audio_rx_push(uint8_t *block)
+#if AUDIO_LOSS_STATS
+/* Сохранена диагностика RX из твоего файла. */
+volatile audio_rx_stats_t audio_loss = {0};
+// Добавляет в статистику потерь информацию о результате добавления данных в буффер 
+static void audio_loss_log_push(ring_push_result_t result)
 {
-    ring_push_result_t result =
-        ring_push_latest(&audio_ring, block);
-
-    if (result == RING_PUSH_ERROR)
-    {
-        return false;
-    }
-
-    audio_loss.rx_blocks++;
+    audio_loss.rx_accepted_blocks++;
 
     if (result == RING_PUSH_ADDED)
     {
-        audio_loss.current_blocks = 0U;
+        audio_loss.rx_current_blocks = 0U;
         audio_loss.current_index = UINT32_MAX;
-        return true;
     }
 
-    audio_loss.overruns++;
+    audio_loss.rx_overruns++;
 
-    if (audio_loss.current_blocks == 0U)
+    if (audio_loss.rx_current_blocks == 0U)
     {
-        audio_loss.loss_series_count++;
+        audio_loss.rx_loss_series_count++;
 
-        uint32_t index = audio_loss.loss_log_count;
+        uint32_t index = audio_loss.rx_loss_log_count;
 
         if (index < AUDIO_LOSS_LOG_CAPACITY)
         {
             audio_loss.current_index = index;
 
             audio_loss.loss_log[index].first_rx_event =
-                audio_loss.rx_blocks;
+                audio_loss.rx_accepted_blocks;
 
             audio_loss.loss_log[index].lost_blocks = 0U;
-            audio_loss.loss_log_count = index + 1U;
+            audio_loss.rx_loss_log_count = index + 1U;
         }
         else
         {
             audio_loss.current_index = UINT32_MAX;
-            audio_loss.loss_unlogged_series++;
         }
     }
-    audio_loss.current_blocks++;
+    audio_loss.rx_current_blocks++;
 
     if (audio_loss.current_index != UINT32_MAX)
     {
         audio_loss.loss_log[
             audio_loss.current_index
-        ].lost_blocks = audio_loss.current_blocks;
+        ].lost_blocks = audio_loss.rx_current_blocks;
     }
 
-    if (audio_loss.current_blocks > audio_loss.loss_max_blocks)
+    if (audio_loss.rx_current_blocks > audio_loss.rx_loss_max_blocks)
     {
-        audio_loss.loss_max_blocks = audio_loss.current_blocks;
+        audio_loss.rx_loss_max_blocks = audio_loss.rx_current_blocks;
     }
-
-    return true;
 }
+uint32_t i2s_tx_underrun_count(void)
+{
+    uint32_t key = irq_lock();
+    uint32_t result = audio_loss.tx_underruns;
+    irq_unlock(key);
+    return result;
+}
+#endif
 
 
 /*
@@ -353,15 +348,6 @@ bool i2s_tx_is_done(void)
     return tx_done != 0U;
 }
 
-
-uint32_t i2s_tx_underrun_count(void)
-{
-    uint32_t key = irq_lock();
-    uint32_t result = tx_underruns;
-    irq_unlock(key);
-    return result;
-}
-
 void i2s_stop(void)
 {
     /*
@@ -429,7 +415,9 @@ int i2s_rx_init(void)
         return -1;
     }
 
+    #if AUDIO_LOSS_STATS
     audio_loss_reset(&audio_loss);
+    #endif
 
     rx_error = 0U;
     rx_expected_half = 0U;
@@ -459,7 +447,10 @@ int i2s_tx_prepare(uint32_t total_blocks)
 
     tx_error = 0U;
     tx_done = 0U;
-    tx_underruns = 0U;
+
+    #if AUDIO_LOSS_STATS
+        audio_loss.tx_underruns = 0U;
+    #endif
 
     tx_total_blocks = total_blocks;
     tx_loaded_blocks = 0U;
@@ -497,7 +488,10 @@ static void tx_fill_half(uint32_t half)
             return;
         }
 
-        tx_underruns++;
+        
+#if AUDIO_LOSS_STATS
+        audio_loss.tx_underruns += 1;
+#endif
     }
 
     memset(destination, 0, I2S_AUDIO_BLOCK_BYTES);
@@ -597,7 +591,6 @@ static bool half_available(uint32_t stream, uint32_t half)
     return remaining > DMA_HALF_HALFWORDS;
 }
 
-
 static void rx_fail(void)
 {
     rx_error = 1U;
@@ -655,7 +648,14 @@ void DMA1_Stream3_IRQHandler(void)
         LL_DMA_ClearFlag_TC3(DMA1);
     }
 
-    if (!audio_rx_push((uint8_t *)dma_half(half)) ||
+    ring_push_result_t result =
+        ring_push_latest(&audio_ring, (uint8_t *)dma_half(half));
+
+#if AUDIO_LOSS_STATS
+    audio_loss_log_push(result);
+#endif
+
+    if (result == RING_PUSH_ERROR ||
         !half_available(LL_DMA_STREAM_3, half))
     {
         rx_fail();
@@ -727,7 +727,7 @@ void DMA1_Stream4_IRQHandler(void)
     /*
      * После последнего аудиоблока ждём ещё одну границу
      * половины DMA. За это время остаток звука выйдет
-     * из DR/shift register; DMA уже передаёт тишину.
+     *  ; DMA уже передаёт тишину.
      */
     if (tx_draining)
     {

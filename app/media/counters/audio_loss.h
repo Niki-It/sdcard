@@ -11,19 +11,24 @@ typedef struct
 
 typedef struct
 {
-    uint32_t rx_blocks;
-    uint32_t overruns;
+    // принято блоков - блоков всего
+    uint32_t rx_accepted_blocks;
+    uint32_t rx_overruns;
 
-    uint32_t loss_series_count;
-    uint32_t loss_max_blocks;
+    // количество серий потерь
+    uint32_t rx_loss_series_count;
+    // максимально блоков потеряно в серии
+    uint32_t rx_loss_max_blocks;
 
-    uint32_t loss_log_count;
-    uint32_t loss_unlogged_series;
-
+    uint32_t rx_loss_log_count;
     audio_loss_entry_t loss_log[AUDIO_LOSS_LOG_CAPACITY];
 
-    uint32_t current_blocks;
+    // Текущие значения - не интересны для статистики
+    uint32_t rx_current_blocks;
     uint32_t current_index;
+
+
+    uint32_t tx_underruns;
 } audio_rx_stats_t;
 
 extern volatile audio_rx_stats_t audio_rx_stats;
@@ -32,6 +37,6 @@ void audio_loss_reset(volatile audio_rx_stats_t* audio_loss)
 {
     *audio_loss = (audio_rx_stats_t){0};
 
-    audio_loss->current_blocks = 0U;
+    audio_loss->rx_current_blocks = 0U;
     audio_loss->current_index = UINT32_MAX;
 }

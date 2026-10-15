@@ -5,7 +5,11 @@
 
 #define I2S_AUDIO_BLOCK_BYTES   2048U
 #define I2S_AUDIO_BLOCK_COUNT   32U
+#define AUDIO_LOSS_STATS 0
 
+#if AUDIO_LOSS_STATS
+uint32_t i2s_tx_underrun_count(void);
+#endif
 /*
  * GPIO, PLLI2S и perf_counter_init() должны быть
  * настроены до использования.
@@ -39,7 +43,7 @@ int i2s_tx_init(void);
 
 bool i2s_tx_has_error(void);
 bool i2s_tx_is_done(void);
-uint32_t i2s_tx_underrun_count(void);
+
 
 /* Запускает предварительно подготовленный RX или TX. */
 int i2s_start(void);

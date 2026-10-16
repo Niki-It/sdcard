@@ -40,6 +40,7 @@ static uint32_t remaining_bytes;
 static wav_playback_state_t playback_state = WAV_PLAYBACK_IDLE;
 static FRESULT playback_error = FR_OK;
 
+// статистика чтения данных
 static wav_playback_stats_t playback_stats;
 
 _Static_assert(sizeof(wav_header_t) == WAV_HEADER_BYTES,

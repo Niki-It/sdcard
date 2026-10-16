@@ -42,7 +42,6 @@ static uint8_t audio_ring_storage[
     I2S_AUDIO_BLOCK_BYTES * I2S_AUDIO_BLOCK_COUNT
 ] __attribute__((aligned(4)));
 
-
 ring_t audio_ring;
 
 
@@ -57,7 +56,6 @@ typedef struct
     uint32_t loaded_blocks;
     // завершенных блоков - оправленных по DMA
     uint32_t completed_blocks;
-
 
     bool half_has_audio[2];
 

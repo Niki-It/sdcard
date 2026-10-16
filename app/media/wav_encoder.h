@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include "ff.h"
+#include "i2s/i2s2.h"
 
 /* Must match the actual I2S/codec configuration. */
 #define WAV_SAMPLE_RATE      48000U

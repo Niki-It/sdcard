@@ -10,11 +10,6 @@
 
 extern ring_t audio_ring;
 
-extern int i2s_rx_start_block(void);
-extern int i2s_start_blocks(void);
-extern void i2s_stop(void);
-extern bool i2s_rx_has_error(void);
-
 #define WAV_BLOCK_ALIGN \
     (WAV_CHANNELS * (WAV_BITS_PER_SAMPLE / 8U))
 
@@ -329,8 +324,8 @@ FRESULT wav_recording_start(const TCHAR *filename)
 
     // Очередь и RX-статистика очищаются внутри
     // i2s_rx_start_block(), пока приём остановлен.
-    if (i2s_rx_start_block() != 0 ||
-        i2s_start_blocks() != 0)
+    if (i2s_rx_init() != 0 ||
+        i2s_start() != 0)
     {
         i2s_stop();
 

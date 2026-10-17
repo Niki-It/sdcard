@@ -137,7 +137,7 @@ void aic3104_i2s_to_hprout(){
     aic3104_write_reg(44, 0x00);
 
     // R47: подключить DAC_L1 -> HPLOUT, 0 dB
-    aic3104_write_reg(64, 0b11000000);
+    aic3104_write_reg(64, 0b10000000);
 
     // R51: HPLOUT Power ON, Mute OFF, 0 dB
     aic3104_write_reg(65, 0x0D);

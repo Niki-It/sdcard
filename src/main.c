@@ -34,8 +34,8 @@ void periph_init();
 static volatile uint32_t uptime_ms = 0;
 
 #define RECORDING 0
-#define PLAYBACK 0
-#define TUSB 1
+#define PLAYBACK 1
+#define TUSB 0
 
 int main(void)
 {
@@ -63,8 +63,8 @@ int main(void)
 #if PLAYBACK
     aic3104_i2s_to_hprout();
     FRESULT playback_result = audio_playback_start(
-        "record.mp3",
-        AUDIO_FORMAT_MP3
+        "record.wav",
+        AUDIO_FORMAT_WAV
     );
     bool playback = (playback_result == FR_OK);
 

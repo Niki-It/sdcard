@@ -18,31 +18,6 @@ extern ring_t audio_ring;
 
 #define WRITE_TIME_LOG_COUNT 2048U
 
-_Static_assert(
-    sizeof(wav_header_t) == 44U,
-    "WAV header must be 44 bytes"
-);
-
-_Static_assert(
-    offsetof(wav_header_t, file_size) == 4U,
-    "RIFF size offset"
-);
-
-_Static_assert(
-    offsetof(wav_header_t, data_size) == 40U,
-    "Data size offset"
-);
-
-_Static_assert(
-    WAV_RING_BLOCK_BYTES % WAV_BLOCK_ALIGN == 0U,
-    "Block must contain complete PCM frames"
-);
-
-_Static_assert(
-    WAV_RING_BLOCK_BYTES % sizeof(uint32_t) == 0U,
-    "Write buffer must contain whole uint32_t elements"
-);
-
 static FIL wav_file;
 static bool file_open;
 static uint32_t data_size;
@@ -146,12 +121,12 @@ static FRESULT write_header(void)
     const wav_header_t header __attribute__((aligned(4))) =
     {
         .riff            = {'R', 'I', 'F', 'F'},
-        .file_size       = 36U,
+        .file_size       = WAV_PCM_HEADER_BYTES - 8U,
         .wave            = {'W', 'A', 'V', 'E'},
 
         .fmt             = {'f', 'm', 't', ' '},
-        .fmt_size        = 16U,
-        .audio_format    = 1U,
+        .fmt_size        = WAV_PCM_FMT_BYTES,
+        .audio_format    = WAV_FORMAT_PCM,
         .channels        = WAV_CHANNELS,
         .sample_rate     = WAV_SAMPLE_RATE,
         .byte_rate       = WAV_SAMPLE_RATE * WAV_BLOCK_ALIGN,

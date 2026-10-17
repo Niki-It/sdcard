@@ -6,6 +6,7 @@ set(SOURCES
     "app/i2s/i2s2.c"
     "app/led_controller/led_controller.c"
     "app/led_controller/led_raw/led_raw.c"
+    "app/media/audio_playback.c"
     "app/media/mp3_decoder.c"
     "app/media/wav_decoder.c"
     "app/media/wav_encoder.c"

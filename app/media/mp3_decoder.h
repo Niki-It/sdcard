@@ -1,11 +1,13 @@
-#pragma once 
+#pragma once
 
-#include <stdint.h>
-#include <string.h>
+#include "audio_pcm.h"
 
-#include "ff.h"
-#include "mp3dec.h"
-#include "SEGGER_RTT.h"
+FRESULT mp3_decoder_prepare(FIL *file);
 
+FRESULT mp3_decoder_read_pcm(
+    uint8_t *destination,
+    uint32_t capacity,
+    audio_pcm_result_t *result
+);
 
-void process_mp3(void);
+void mp3_decoder_close(void);

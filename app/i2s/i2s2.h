@@ -3,9 +3,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define I2S_AUDIO_BLOCK_BYTES   2048U
-#define I2S_AUDIO_BLOCK_COUNT   32U
-#define AUDIO_LOSS_STATS 0
+#define I2S_AUDIO_BLOCK_BYTES   4608U
+#define I2S_AUDIO_BLOCK_COUNT   16U
+#define AUDIO_LOSS_STATS       0
 
 #if AUDIO_LOSS_STATS
 uint32_t i2s_tx_underrun_count(void);
@@ -38,8 +38,9 @@ bool i2s_rx_has_error(void);
  * total_blocks включает последний блок,
  * дополненный нулями до I2S_AUDIO_BLOCK_BYTES.
  */
-int i2s_tx_prepare(uint32_t total_blocks);
+int i2s_tx_prepare(void);
 int i2s_tx_init(void);
+void i2s_tx_finish(void);
 
 bool i2s_tx_has_error(void);
 bool i2s_tx_is_done(void);

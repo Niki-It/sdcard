@@ -14,6 +14,7 @@
 #include "media/wav_encoder.h"
 #include "perf_counter/perf_counter.h"
 #include "media/wav_decoder.h"
+#include "media/audio_playback.h"
 
 #define AMP_PORT        GPIOB
 #define APB_PIN         LL_GPIO_PIN_6
@@ -33,8 +34,8 @@ void periph_init();
 static volatile uint32_t uptime_ms = 0;
 
 #define RECORDING 0
-#define PLAYBACK 1
-#define TUSB 0
+#define PLAYBACK 0
+#define TUSB 1
 
 int main(void)
 {
@@ -61,14 +62,17 @@ int main(void)
 
 #if PLAYBACK
     aic3104_i2s_to_hprout();
-    FRESULT playback_result = wav_playback_start("record.wav");
+    FRESULT playback_result = audio_playback_start(
+        "record.mp3",
+        AUDIO_FORMAT_MP3
+    );
     bool playback = (playback_result == FR_OK);
 
     if (!playback)
     {
         SEGGER_RTT_printf(
             0,
-            "WAV playback start error: %d\r\n",
+            "MP3 playback start error: %d\r\n",
             (int)playback_result
         );
     }
@@ -76,11 +80,11 @@ int main(void)
 
     while (1)
     {
-        #if TUSB
+#if TUSB
         tud_task();
-        #endif
+#endif
 
-        #if RECORDING
+#if RECORDING
         if (recording)
         {
             if ((uint32_t)(uptime_ms - recording_start_ms) >= 10000U)
@@ -88,9 +92,11 @@ int main(void)
                 result = wav_recording_end();
                 recording = false;
 
-                SEGGER_RTT_printf(0,
-                                  "WAV recording finished: %d\r\n",
-                                  (int)result);
+                SEGGER_RTT_printf(
+                    0,
+                    "WAV recording finished: %d\r\n",
+                    (int)result
+                );
             }
             else
             {
@@ -101,58 +107,61 @@ int main(void)
                     FRESULT end_result = wav_recording_end();
                     recording = false;
 
-                    SEGGER_RTT_printf(0,
-                                      "WAV write error: %d, end: %d\r\n",
-                                      (int)result,
-                                      (int)end_result);
+                    SEGGER_RTT_printf(
+                        0,
+                        "WAV write error: %d, end: %d\r\n",
+                        (int)result,
+                        (int)end_result
+                    );
                 }
             }
         }
-        #endif
+#endif
 
 #if PLAYBACK
         if (playback)
         {
-            playback_result = wav_playback_task();
+            playback_result = audio_playback_task();
 
             if (playback_result != FR_OK)
             {
-                FRESULT end_result = wav_playback_end();
                 playback = false;
 
                 SEGGER_RTT_printf(
                     0,
-                    "WAV playback error: %d, end: %d\r\n",
-                    (int)playback_result,
-                    (int)end_result
+                    "MP3 playback error: %d\r\n",
+                    (int)playback_result
                 );
             }
-            else if (!wav_playback_is_active())
+            else if (!audio_playback_is_active())
             {
                 playback = false;
 
-                /* Decoder уже остановил I2S и закрыл файл. */
+                /* audio_playback остановил I2S и закрыл файл. */
                 SEGGER_RTT_printf(
                     0,
-                    "WAV playback finished\r\n"
+                    "MP3 playback finished\r\n"
                 );
             }
         }
 #endif
-        // button_status = poll_button_events();
 
-        // if (button_status.ready == 1)
-        // {
-        //     if (button_status.VD1 == DOUBLE_SHORT)
-        //     {
-        //         message_counter++;
-        //     }
-        // }
+        /*
+        button_status = poll_button_events();
 
-        // if (can_send_command())
-        // {
-        //     send_SetLedState(UART4);
-        // }
+        if (button_status.ready == 1)
+        {
+            if (button_status.VD1 == DOUBLE_SHORT)
+            {
+                message_counter++;
+            }
+        }
+
+        if (can_send_command())
+        {
+            send_SetLedState(UART4);
+        }
+        */
     }
 }
 

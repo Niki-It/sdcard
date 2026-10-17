@@ -47,20 +47,15 @@ ring_t audio_ring;
 
 typedef struct
 {
-    volatile uint8_t error;
-    volatile uint8_t done;
+    uint8_t error;
+    uint8_t done;
 
-    // всего блоков заявлено для передачи
-    uint32_t total_blocks;
-    // всего блоков загружено в ring и dma
-    uint32_t loaded_blocks;
-    // завершенных блоков - оправленных по DMA
-    uint32_t completed_blocks;
+    bool input_finished;
+    bool drain_pending;
 
     bool half_has_audio[2];
 
     uint32_t expected_half;
-    uint32_t underruns;
 } i2s_tx_context_t;
 
 static volatile i2s_tx_context_t tx;
@@ -414,10 +409,9 @@ int i2s_rx_init(void)
 }
 
 
-int i2s_tx_prepare(uint32_t total_blocks)
+int i2s_tx_prepare(void)
 {
-    if (i2s_is_busy() ||
-        total_blocks == 0U)
+    if (i2s_is_busy())
     {
         return -1;
     }
@@ -427,27 +421,35 @@ int i2s_tx_prepare(uint32_t total_blocks)
         return -1;
     }
 
-
     tx.error = 0U;
     tx.done = 0U;
 
-    #if AUDIO_LOSS_STATS
-        audio_loss.tx_underruns = 0U;
-    #endif
-
-    tx.total_blocks = total_blocks;
-    tx.loaded_blocks = 0U;
-    tx.completed_blocks = 0U;
+    tx.input_finished = false;
+    tx.drain_pending = false;
 
     tx.half_has_audio[0] = false;
     tx.half_has_audio[1] = false;
 
     tx.expected_half = 0U;
 
+#if AUDIO_LOSS_STATS
+    audio_loss.tx_underruns = 0U;
+#endif
+
     memset(i2s_dma_buffer, 0, sizeof(i2s_dma_buffer));
 
     state = I2S_TX_PREPARED;
     return 0;
+}
+
+
+void i2s_tx_finish(void)
+{
+    uint32_t key = irq_lock();
+
+    tx.input_finished = true;
+
+    irq_unlock(key);
 }
 
 
@@ -461,20 +463,22 @@ static void tx_fill_half(uint32_t half)
 
     tx.half_has_audio[half] = false;
 
-    if (tx.loaded_blocks < tx.total_blocks)
+    /*
+     * Даже после input_finished в кольце ещё могут
+     * находиться опубликованные аудиоблоки.
+     */
+    if (ring_pop(&audio_ring, destination))
     {
-        if (ring_pop(&audio_ring, destination))
-        {
-            tx.loaded_blocks++;
-            tx.half_has_audio[half] = true;
-            return;
-        }
-
-        
-#if AUDIO_LOSS_STATS
-        audio_loss.tx_underruns += 1;
-#endif
+        tx.half_has_audio[half] = true;
+        return;
     }
+
+#if AUDIO_LOSS_STATS
+    if (!tx.input_finished)
+    {
+        audio_loss.tx_underruns++;
+    }
+#endif
 
     memset(destination, 0, I2S_AUDIO_BLOCK_BYTES);
 }
@@ -487,14 +491,22 @@ int i2s_tx_init(void)
         return -1;
     }
 
-    uint32_t needed = 2U;
+    size_t ready = ring_count(&audio_ring);
 
-    if (ring_count(&audio_ring) < needed)
+    if (ready == 0U)
     {
         return -1;
     }
 
-    // Заполнить DMA буффер полностью до начала передачи
+    /*
+     * Один блок разрешён только для законченного
+     * короткого потока. Вторая половина будет тишиной.
+     */
+    if (ready < 2U && !tx.input_finished)
+    {
+        return -1;
+    }
+
     tx_fill_half(0U);
     tx_fill_half(1U);
 
@@ -708,13 +720,10 @@ void DMA1_Stream4_IRQHandler(void)
         LL_DMA_ClearFlag_TC4(DMA1);
     }
 
-
-    // Добовляем к завершенным блокам только если это не пусты блоки (заполнители после основного аудио)
-    if (tx.half_has_audio[half])
-    {
-        tx.completed_blocks++;
-    }
-
+       /*
+     * DMA завершил эту половину.
+     * Загружаем следующий аудиоблок либо тишину.
+     */
     tx_fill_half(half);
 
     if (!half_available(LL_DMA_STREAM_4, half))
@@ -723,17 +732,37 @@ void DMA1_Stream4_IRQHandler(void)
         return;
     }
 
-    if (tx.completed_blocks == tx.total_blocks)
+    bool drained =
+        tx.input_finished &&
+        ring_is_empty(&audio_ring) &&
+        !tx.half_has_audio[0] &&
+        !tx.half_has_audio[1];
+
+    if (drained)
     {
-        tx.done = true;
+        /*
+         * Первое событие: аудиоблоков в DMA больше нет.
+         * Следующее событие: прошла половина с тишиной.
+         */
+        if (tx.drain_pending)
+        {
+            tx.done = 1U;
+        }
+        else
+        {
+            tx.drain_pending = true;
+        }
+    }
+    else
+    {
+        tx.drain_pending = false;
     }
 
-    // переключение половины с 0 на 1 и с 1 на 0
     tx.expected_half ^= 1U;
 
     /*
-     * После tx_done DMA продолжает передавать нули,
-     * пока main не вызовет i2s_stop().
+     * DMA продолжает передавать нули.
+     * Остановку выполняет audio_playback из main.
      */
 }
 
@@ -753,7 +782,6 @@ bool i2s_tx_has_error(void)
 {
     return tx.error != 0U;
 }
-
 
 bool i2s_tx_is_done(void)
 {

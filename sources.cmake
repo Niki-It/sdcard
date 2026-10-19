@@ -4,6 +4,7 @@ set(SOURCES
     "app/circular/ring.c"
     "app/customcrc8/new_crc8.c"
     "app/i2s/i2s2.c"
+    "app/led_controller/button.c"
     "app/led_controller/led_controller.c"
     "app/led_controller/led_raw/led_raw.c"
     "app/media/audio_playback.c"

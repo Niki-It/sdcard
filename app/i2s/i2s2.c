@@ -393,16 +393,21 @@ int i2s_rx_init(void)
         return -1;
     }
 
-    #if AUDIO_LOSS_STATS
+#if AUDIO_LOSS_STATS
     audio_loss_reset(&audio_loss);
-    #endif
+#endif
 
     rx_error = 0U;
     rx_expected_half = 0U;
 
+    LL_SPI_ClearFlag_OVR(SPI2);
+
     configure_rx_dma();
 
     state = I2S_RX_PREPARED;
+
+    __DMB();
+
     LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_3);
 
     return 0;
@@ -515,6 +520,7 @@ int i2s_tx_init(void)
     state = I2S_TX_ARMED;
     __DMB();
 
+    LL_I2S_ClearFlag_UDR(I2S2ext);
     LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_4);
     return 0;
 }

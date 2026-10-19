@@ -15,6 +15,8 @@
 #include "perf_counter/perf_counter.h"
 #include "media/wav_decoder.h"
 #include "media/audio_playback.h"
+#include "led_controller/button.h"
+
 
 #define AMP_PORT        GPIOB
 #define APB_PIN         LL_GPIO_PIN_6
@@ -33,79 +35,186 @@ void diskio_set_sd_card(sd_card_info_t *info);
 void periph_init();
 static volatile uint32_t uptime_ms = 0;
 
-#define RECORDING 1
-#define PLAYBACK 0
-#define TUSB 0
+typedef enum
+{
+    IDLE,
+    RECORDING,
+    PLAYING,
+    BYPASS
+} app_state_t;
+
+#define AUDIO_FILENAME "record.wav"
+
+static Button record_button = {0};
+static Button bypass_button = {0};
+
 
 int main(void)
 {
     periph_init();
     fs_unit(true);
     tusb_init();
-    ButtonStatus button_status;
+
     mux_select(2, MUX_CHANNEL_X1);
     aic3104_init();
-    aic3104_init_clocking();
     i2s_dma_init();
 
-#if RECORDING
-    aic3104_line1lp_to_i2s();
-    FRESULT result = wav_recording_start("record.wav");
-    bool recording = (result == FR_OK);
-    uint32_t recording_start_ms = uptime_ms;
-
-    if (!recording)
-    {
-        SEGGER_RTT_printf(0, "WAV start error: %d\r\n", (int)result);
-    }
-#endif
-
-#if PLAYBACK
-    aic3104_i2s_to_hprout();
-    FRESULT playback_result = audio_playback_start(
-        "record.wav",
-        AUDIO_FORMAT_WAV
-    );
-    bool playback = (playback_result == FR_OK);
-
-    if (!playback)
-    {
-        SEGGER_RTT_printf(
-            0,
-            "MP3 playback start error: %d\r\n",
-            (int)playback_result
-        );
-    }
-#endif
+    app_state_t state = IDLE;
 
     while (1)
     {
-#if TUSB
-        tud_task();
-#endif
+        ButtonStatus button_status = poll_button_events();
 
-#if RECORDING
-        if (recording)
+        if (button_status.ready == 1)
         {
-            if ((uint32_t)(uptime_ms - recording_start_ms) >= 10000U)
-            {
-                result = wav_recording_end();
-                recording = false;
+            next(
+                &record_button,
+                button_status.VD1 == LONG_EVENT
+            );
 
-                SEGGER_RTT_printf(
-                    0,
-                    "WAV recording finished: %d\r\n",
-                    (int)result
-                );
-            }
-            else
+            next(
+                &bypass_button,
+                button_status.VD3 == LONG_EVENT
+            );
+
+            switch (state)
             {
-                result = wav_recording_task();
+                case IDLE:
+                {
+                    if (pressed(&record_button))
+                    {
+                        aic3104_soft_reset();
+                        aic3104_init_clocking();
+                        aic3104_line1lp_to_i2s();
+
+                        FRESULT result =
+                            wav_recording_start(AUDIO_FILENAME);
+
+                        if (result == FR_OK)
+                        {
+                            state = RECORDING;
+
+                            SEGGER_RTT_printf(
+                                0,
+                                "WAV recording started\r\n"
+                            );
+                        }
+                        else
+                        {
+                            SEGGER_RTT_printf(
+                                0,
+                                "WAV recording start error: %d\r\n",
+                                (int)result
+                            );
+                        }
+                    }
+                    else if (button_status.VD2 == SHORT_EVENT)
+                    {
+                        aic3104_soft_reset();
+                        aic3104_init_clocking();
+                        aic3104_i2s_to_hprout();
+
+                        FRESULT result = audio_playback_start(
+                            AUDIO_FILENAME,
+                            AUDIO_FORMAT_WAV
+                        );
+
+                        if (result == FR_OK)
+                        {
+                            state = PLAYING;
+
+                            SEGGER_RTT_printf(
+                                0,
+                                "WAV playback started\r\n"
+                            );
+                        }
+                        else
+                        {
+                            SEGGER_RTT_printf(
+                                0,
+                                "WAV playback start error: %d\r\n",
+                                (int)result
+                            );
+                        }
+                    }
+                    else if (pressed(&bypass_button))
+                    {
+                        aic3104_soft_reset();
+                        aic3104_init_clocking();
+                        aic3104_init_analog_bypass();
+
+                        state = BYPASS;
+
+                        SEGGER_RTT_printf(
+                            0,
+                            "Bypass started\r\n"
+                        );
+                    }
+
+                    break;
+                }
+
+                case RECORDING:
+                {
+                    if (released(&record_button))
+                    {
+                        FRESULT result = wav_recording_end();
+
+                        state = IDLE;
+
+                        SEGGER_RTT_printf(
+                            0,
+                            "WAV recording finished: %d\r\n",
+                            (int)result
+                        );
+                    }
+
+                    break;
+                }
+
+                case PLAYING:
+                {
+                    /* Кнопки не прерывают воспроизведение. */
+                    break;
+                }
+
+                case BYPASS:
+                {
+                    if (released(&bypass_button))
+                    {
+                        /* Отключаем аналоговый маршрут кодека. */
+                        aic3104_soft_reset();
+
+                        state = IDLE;
+
+                        SEGGER_RTT_printf(
+                            0,
+                            "Bypass finished\r\n"
+                        );
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        switch (state)
+        {
+            case IDLE:
+            {
+                tud_task();
+                break;
+            }
+
+            case RECORDING:
+            {
+                FRESULT result = wav_recording_task();
 
                 if (result != FR_OK)
                 {
                     FRESULT end_result = wav_recording_end();
-                    recording = false;
+
+                    state = IDLE;
 
                     SEGGER_RTT_printf(
                         0,
@@ -114,54 +223,49 @@ int main(void)
                         (int)end_result
                     );
                 }
+
+                break;
             }
-        }
-#endif
 
-#if PLAYBACK
-        if (playback)
-        {
-            playback_result = audio_playback_task();
-
-            if (playback_result != FR_OK)
+            case PLAYING:
             {
-                playback = false;
+                FRESULT result = audio_playback_task();
 
-                SEGGER_RTT_printf(
-                    0,
-                    "MP3 playback error: %d\r\n",
-                    (int)playback_result
-                );
+                if (result != FR_OK)
+                {
+                    /* Playback сам выполняет остановку и закрытие. */
+                    state = IDLE;
+
+                    SEGGER_RTT_printf(
+                        0,
+                        "WAV playback error: %d\r\n",
+                        (int)result
+                    );
+                }
+                else if (!audio_playback_is_active())
+                {
+                    state = IDLE;
+
+                    SEGGER_RTT_printf(
+                        0,
+                        "WAV playback finished\r\n"
+                    );
+                }
+
+                break;
             }
-            else if (!audio_playback_is_active())
+
+            case BYPASS:
             {
-                playback = false;
-
-                /* audio_playback остановил I2S и закрыл файл. */
-                SEGGER_RTT_printf(
-                    0,
-                    "MP3 playback finished\r\n"
-                );
-            }
-        }
-#endif
-
-        /*
-        button_status = poll_button_events();
-
-        if (button_status.ready == 1)
-        {
-            if (button_status.VD1 == DOUBLE_SHORT)
-            {
-                message_counter++;
+                /* Аналоговый маршрут работает без обслуживания. */
+                break;
             }
         }
 
         if (can_send_command())
         {
-            send_SetLedState(UART4);
+            send_SetLedState(USART2);
         }
-        */
     }
 }
 

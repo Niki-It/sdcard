@@ -142,3 +142,8 @@ void aic3104_i2s_to_hprout(){
     // R51: HPLOUT Power ON, Mute OFF, 0 dB
     aic3104_write_reg(65, 0x0D);
 }
+
+void aic3104_soft_reset()
+{
+    aic3104_write_reg(1, 0x80);
+}

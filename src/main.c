@@ -202,12 +202,16 @@ int main(void)
         {
             case IDLE:
             {
+                LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
+                LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
                 tud_task();
                 break;
             }
 
             case RECORDING:
             {
+                LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
+                LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
                 FRESULT result = wav_recording_task();
 
                 if (result != FR_OK)
@@ -229,6 +233,8 @@ int main(void)
 
             case PLAYING:
             {
+                LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
+                LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
                 FRESULT result = audio_playback_task();
 
                 if (result != FR_OK)
@@ -257,6 +263,8 @@ int main(void)
 
             case BYPASS:
             {
+                LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
+                LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
                 /* Аналоговый маршрут работает без обслуживания. */
                 break;
             }

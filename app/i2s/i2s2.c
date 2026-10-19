@@ -291,11 +291,6 @@ void i2s_dma_init(void)
 
     LL_I2S_Init(SPI2, &cfg);
 
-    /* Сохранена твоя настройка PLLI2S/делителя. */
-    LL_I2S_ConfigPrescaler(
-        SPI2, 3, LL_I2S_PRESCALER_PARITY_ODD
-    );
-
     LL_I2S_InitFullDuplex(I2S2ext, &cfg);
 
     LL_I2S_DisableIT_RXNE(SPI2);

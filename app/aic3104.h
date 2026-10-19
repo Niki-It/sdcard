@@ -36,4 +36,7 @@ void aic3104_line1rp_to_i2s(void);
 void aic3104_i2s_to_hplout();
 void aic3104_i2s_to_hprout();
 
+void aic3104_loud_up();
+void aic3104_loud_down();
+
 #endif

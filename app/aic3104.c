@@ -41,6 +41,8 @@ void aic3104_init_clocking(void) {
     aic3104_write_reg(101, 0x01);
     LL_mDelay(50);
 }
+static uint8_t loud = 128 + 72;
+
 
 void aic3104_init_analog_bypass(void) 
 {   
@@ -53,10 +55,10 @@ void aic3104_init_analog_bypass(void)
     aic3104_write_reg(0x0F, 0x00);
     
     // R 46: PGA_L to HPLOUT Volume Control Register
-    aic3104_write_reg(0x2E, 0x80);
+    aic3104_write_reg(0x2E, loud);
 
     // R 60: PGA_L to HPROUT Volume Control Register
-    aic3104_write_reg(0x3C, 0b10111111);
+    aic3104_write_reg(0x3C, loud);
     
     // R 51: HPLOUT Output Level Control Register
     aic3104_write_reg(0x33, 0x09);
@@ -97,6 +99,7 @@ void aic3104_line1rp_to_i2s(void)
     aic3104_write_reg(107, 0x30);
 }
 
+
 void aic3104_i2s_to_hplout(){
         // Page 0
     aic3104_write_reg(0, 0x00);
@@ -114,11 +117,12 @@ void aic3104_i2s_to_hplout(){
     aic3104_write_reg(43, 0x00);
 
     // R47: подключить DAC_L1 -> HPLOUT, 0 dB
-    aic3104_write_reg(47, 0x80);
+    aic3104_write_reg(47, loud);
 
     // R51: HPLOUT Power ON, Mute OFF, 0 dB
     aic3104_write_reg(51, 0x0D);
 }
+
 
 void aic3104_i2s_to_hprout(){
         // Page 0
@@ -137,7 +141,7 @@ void aic3104_i2s_to_hprout(){
     aic3104_write_reg(44, 0x00);
 
     // R47: подключить DAC_L1 -> HPLOUT, 0 dB
-    aic3104_write_reg(64, 0b11000000);
+    aic3104_write_reg(64, loud);
 
     // R51: HPLOUT Power ON, Mute OFF, 0 dB
     aic3104_write_reg(65, 0x0D);
@@ -146,4 +150,47 @@ void aic3104_i2s_to_hprout(){
 void aic3104_soft_reset()
 {
     aic3104_write_reg(1, 0x80);
+}
+
+void aic3104_loud_down()
+{
+
+    uint8_t absolute = loud & 0b01111111;
+
+    absolute += 2;
+
+    if(absolute > 72)
+    {
+        absolute = 72;
+    }
+
+    loud = absolute | 0b10000000;
+    aic3104_write_reg(64, loud);
+    aic3104_write_reg(47, loud);
+    aic3104_write_reg(0x2E, loud);
+     aic3104_write_reg(0x3C, loud);
+
+
+    
+
+}
+void aic3104_loud_up()
+{
+
+    uint8_t absolute = loud & 0b01111111;
+
+    if(absolute < 2)
+    {
+        absolute = 2;
+    }
+    absolute -= 2;
+
+    loud = absolute | 0b10000000;
+    aic3104_write_reg(64, loud);
+    aic3104_write_reg(47, loud);
+    aic3104_write_reg(0x2E, loud);
+     aic3104_write_reg(0x3C, loud);
+
+
+
 }

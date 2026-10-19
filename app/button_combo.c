@@ -10,8 +10,8 @@
 static uint8_t  combo_timeout = DEFAULT_COMBO_TIMEOUT;
 static uint8_t  combo_active = 0;          
 static uint16_t combo_timer = 0;           
-static uint8_t  active_buttons_mask = 0;   // Битовая маска кнопок в текущей комбинации (бит 0 = VD1 и т.д.)
-static LedEvent combo_events[8] = {NO_EVENT};     
+uint8_t  active_buttons_mask = 0;   // Битовая маска кнопок в текущей комбинации (бит 0 = VD1 и т.д.)
+LedEvent combo_events[8] = {NO_EVENT};     
 static LedEvent prev_button_states[8] = {NO_EVENT}; 
 
 // ============================================================================
@@ -22,7 +22,9 @@ static inline void add_to_combo(uint8_t btn_idx, LedEvent state) {
     combo_events[btn_idx] = state;
 }
 
-static void flush_combo(void) {
+__attribute__((weak))
+void flush_combo(void) 
+{
     if (!combo_active) return;
 
     SEGGER_RTT_printf(0, "=== start ===\r\n");

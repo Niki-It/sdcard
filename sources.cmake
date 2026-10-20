@@ -3,6 +3,7 @@ set(SOURCES
     "app/button_combo.c"
     "app/circular/ring.c"
     "app/customcrc8/new_crc8.c"
+    "app/debounce.c"
     "app/i2s/i2s2.c"
     "app/led_controller/button.c"
     "app/led_controller/led_controller.c"

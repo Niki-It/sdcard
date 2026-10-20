@@ -157,7 +157,7 @@ void aic3104_loud_down()
 
     uint8_t absolute = loud & 0b01111111;
 
-    absolute += 2;
+    absolute += 3;
 
     if(absolute > 72)
     {
@@ -168,29 +168,23 @@ void aic3104_loud_down()
     aic3104_write_reg(64, loud);
     aic3104_write_reg(47, loud);
     aic3104_write_reg(0x2E, loud);
-     aic3104_write_reg(0x3C, loud);
-
-
-    
-
+   aic3104_write_reg(0x3C, loud);
 }
+
 void aic3104_loud_up()
 {
 
     uint8_t absolute = loud & 0b01111111;
 
-    if(absolute < 2)
+    if(absolute < 3 || absolute > 127)
     {
-        absolute = 2;
+        absolute = 3;
     }
-    absolute -= 2;
+    absolute -= 3;
 
     loud = absolute | 0b10000000;
     aic3104_write_reg(64, loud);
     aic3104_write_reg(47, loud);
     aic3104_write_reg(0x2E, loud);
-     aic3104_write_reg(0x3C, loud);
-
-
-
+    aic3104_write_reg(0x3C, loud);
 }

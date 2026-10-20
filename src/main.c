@@ -1,23 +1,26 @@
+#include "main.h"
 #include "soft_i2c.h"
 #include "aic3104.h"
-#include "main.h"
 #include "mux.h"
+#include "debounce.h"
 #include "i2s/i2s2.h"
-
 #include "tusb.h"
 #include "sdio/sdio.h"
 #include "led_controller/led_controller.h"
 #include "led_controller/led_raw/led_raw.h"
+#include "button_combo.h"
 #include "storage/fs.h"
 #include "../lib/Helix/src/pub/mp3dec.h"
 #include "media/mp3_decoder.h"
 #include "media/wav_encoder.h"
-#include "perf_counter/perf_counter.h"
 #include "media/wav_decoder.h"
 #include "media/audio_playback.h"
-#include "led_controller/button.h"
-#include "button_combo.h"
+#include "perf_counter/perf_counter.h"
 
+
+/* ============================================================================
+ * Константы 
+ * ========================================================================== */
 
 #define AMP_PORT        GPIOB
 #define APB_PIN         LL_GPIO_PIN_6
@@ -25,157 +28,123 @@
 #define MUTE_AMP1_PIN   LL_GPIO_PIN_8
 #define MUTE_AMP2_PIN   LL_GPIO_PIN_9
 
+#define AUDIO_FILENAME "record.wav"
+
+#define DEBOUNCE_PERIOD_MS          1U  // Периодичность вызова обработчика антидребезга
+#define ACHTUNG_DEBOUNCE_THRESHOLD  5U  // Количество вызовов обработчика с неизменным состоянием сигнала до его подтверждения
+
+/* ============================================================================
+ * Типы данных
+ * ========================================================================== */
+
+// Состояния
+typedef enum {
+    IDLE,
+    RECORDING,
+    PLAYING,
+    BYPASS,
+    ACHTUNG
+} app_state_t;
+
+// События
+typedef enum {
+    APP_EVENT_RECORD_START,
+    APP_EVENT_RECORD_STOP,
+
+    APP_EVENT_PLAY_REQUEST,
+    APP_EVENT_PLAYBACK_FINISHED,
+    APP_EVENT_PLAYBACK_ERROR,
+
+    APP_EVENT_BYPASS_START,
+    APP_EVENT_BYPASS_STOP,
+
+    APP_EVENT_VOLUME_UP,
+    APP_EVENT_VOLUME_DOWN,
+
+    APP_EVENT_RECORDING_ERROR,
+
+    APP_EVENT_ACHTUNG_ON,
+    APP_EVENT_ACHTUNG_OFF
+} app_event_t;
+
+// Пины с антидребезгом
+typedef enum {
+    DEBOUNCE_INPUT_ACHTUNG,
+    DEBOUNCE_INPUT_COUNT
+} debounce_input_t;
+
+
+/* ============================================================================
+ * Глобальные переменные
+ * ========================================================================== */
+
 uint32_t tick_counter = 1;
 uint32_t message_counter = 0;
 uint32_t send_counter = 0;
 
 sd_card_info_t card_info;
-void diskio_set_sd_card(sd_card_info_t *info);
 
-
-void periph_init();
-static volatile uint32_t uptime_ms = 0;
-
-typedef enum
-{
-    IDLE,
-    RECORDING,
-    PLAYING,
-    BYPASS
-} app_state_t;
-
-#define AUDIO_FILENAME "record.wav"
-
-app_state_t state = IDLE;
-
-
-void flush_combo(void) 
-{
-    for (uint8_t i = 0; i < 8; i++) {
-        if (active_buttons_mask & (1U << i)) 
-        {
-            if(combo_events[6] == SHORT_EVENT && i == 6)
-            {
-                aic3104_loud_up();
-                SEGGER_RTT_printf(
-                    0,
-                    "+\r\n"
-                );
-            }
-            if(combo_events[7] == SHORT_EVENT  && i == 7)
-            {
-                aic3104_loud_down();
-
-                SEGGER_RTT_printf(
-                    0,
-                    "-\r\n"
-                );
-            }
-            if(combo_events[0] == LONG_EVENT  && i == 0 && state == IDLE)
-            {
-                aic3104_soft_reset();
-                aic3104_init_clocking();
-                aic3104_line1lp_to_i2s();
-
-                FRESULT result =
-                    wav_recording_start(AUDIO_FILENAME);
-                
-
-                if (result == FR_OK)
-                {
-                    state = RECORDING;
-                    LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
-                    LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
-
-                    SEGGER_RTT_printf(
-                        0,
-                        "WAV recording started\r\n"
-                    );
-                }
-                else
-                {
-                    SEGGER_RTT_printf(
-                        0,
-                        "WAV recording start error: %d\r\n",
-                        (int)result
-                    );
-                }
-
-
-            }
-            if(combo_events[0] == NO_EVENT  && i == 0 && state == RECORDING)
-            {
-                FRESULT result = wav_recording_end();
-
-                state = IDLE;
-
-                SEGGER_RTT_printf(
-                    0,
-                    "WAV recording finished: %d\r\n",
-                    (int)result
-                );
-            }
-
-            if(combo_events[1] == SHORT_EVENT  && i == 1)
-            {
-                aic3104_soft_reset();
-                aic3104_init_clocking();
-                aic3104_i2s_to_hprout();
-
-                FRESULT result = audio_playback_start(
-                    AUDIO_FILENAME,
-                    AUDIO_FORMAT_WAV
-                );
-
-                if (result == FR_OK)
-                {
-                    state = PLAYING;
-                    LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
-                    LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
-
-                    SEGGER_RTT_printf(
-                        0,
-                        "WAV playback started\r\n"
-                    );
-                }
-                else
-                {
-                    SEGGER_RTT_printf(
-                        0,
-                        "WAV playback start error: %d\r\n",
-                        (int)result
-                    );
-                }
-            }
-            if(combo_events[2] == LONG_EVENT  && i == 2 && state == IDLE)
-            {
-                LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
-                LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
-                aic3104_soft_reset();
-                aic3104_init_clocking();
-                aic3104_init_analog_bypass();
-
-                state = BYPASS;
-
-                SEGGER_RTT_printf(
-                    0,
-                    "Bypass started\r\n"
-                );
-            }
-            if(combo_events[2] == NO_EVENT  && i == 2 && state == BYPASS)
-            {
-                state = IDLE;
-                LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
-                LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
-                
-                SEGGER_RTT_printf(
-                    0,
-                    "Bypass finished\r\n"
-                );
-            }
-        }
+static pin_debounce_t debounced_pins[DEBOUNCE_INPUT_COUNT] = {
+    [DEBOUNCE_INPUT_ACHTUNG] = {
+        .port = GPIOC,
+        .pin = LL_GPIO_PIN_15,
+        .threshold = ACHTUNG_DEBOUNCE_THRESHOLD
     }
-}
+};
+
+static volatile uint32_t uptime_ms = 0;
+static app_state_t state = IDLE;
+
+
+/* ============================================================================
+ * Прототипы внешних функций
+ * ========================================================================== */
+
+extern void diskio_set_sd_card(sd_card_info_t *info);
+
+
+/* ============================================================================
+ * Прототипы функций
+ * ========================================================================== */
+
+int main(void);
+void periph_init(void);
+void SysTick_Handler(void);
+
+void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]);
+
+static void process_achtung_button(void);
+
+/* Управление усилителями. */
+static void mute_amplifiers(void);
+static void unmute_amplifiers(void);
+
+/* Запуск и завершение режимов. */
+static FRESULT start_recording(void);
+static void stop_recording(app_event_t reason, FRESULT error);
+
+static FRESULT start_playback(void);
+static void finish_playback(app_event_t reason, FRESULT error);
+
+static void start_bypass(void);
+static void stop_bypass(void);
+
+static void interrupt_mode(app_state_t previous_state);
+static void app_playback_abort();
+
+/* Обработка событий и обслуживание текущего состояния. */
+static int process_common_event(app_event_t event);
+static void process_state_event(app_event_t event, FRESULT error);
+static void process_state_logic(void);
+
+/* Проверка события отдельной кнопки в комбинации. */
+static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event);
+
+
+/* ============================================================================
+ * Точка входа и основной цикл
+ * ========================================================================== */
+
 int main(void)
 {
     periph_init();
@@ -186,107 +155,474 @@ int main(void)
     aic3104_init();
     i2s_dma_init();
 
-    LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
-    LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
+    debounce_init(debounced_pins, DEBOUNCE_INPUT_COUNT, DEBOUNCE_PERIOD_MS);
 
+    mute_amplifiers();
 
-    while (1)
-    {
+    while (1) {
+        pin_polling();
+        debounce_process(uptime_ms);
+        process_achtung_button();
+
         ButtonStatus button_status = poll_button_events();
+
         process_button_combinations(&button_status);
+        process_state_logic();
 
-        if(state == PLAYING)
-        {
-            FRESULT result = audio_playback_task();
-
-            if (result != FR_OK)
-            {
-                /* Playback сам выполняет остановку и закрытие. */
-                state = IDLE;
-                LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
-                LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
-
-                SEGGER_RTT_printf(
-                    0,
-                    "WAV playback error: %d\r\n",
-                    (int)result
-                );
-            }
-            else if (!audio_playback_is_active())
-            {
-                state = IDLE;
-
-                SEGGER_RTT_printf(
-                    0,
-                    "WAV playback finished\r\n"
-                );
-                state = IDLE;
-                LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
-                LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
-            }
-        }
-        if(state == RECORDING)
-        {
-            FRESULT result = wav_recording_task();
-
-            if (result != FR_OK)
-            {
-                FRESULT end_result = wav_recording_end();
-
-                state = IDLE;
-
-                SEGGER_RTT_printf(
-                    0,
-                    "WAV write error: %d, end: %d\r\n",
-                    (int)result,
-                    (int)end_result
-                );
-            }
-        }
-
-        if (can_send_command())
-        {
+        if (can_send_command()) {
             send_SetLedState(USART2);
         }
     }
 }
 
-void SysTick_Handler(void)
+
+/* ============================================================================
+ * Преобразование комбинаций кнопок в события приложения
+ * ========================================================================== */
+
+static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event)
 {
-    uptime_ms++;
+    return (mask & (1U << button)) != 0U && events[button] == event;
+}
 
-    tick_counter++;
+void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT])
+{
+    /*
+     * Отпускание кнопки текущего режима завершает режим и поглощает
+     * всю комбинацию. Остальные события этой комбинации игнорируются.
+     */
+    if (state == RECORDING &&
+        combo_has(buttons_mask, events, 0, NO_EVENT)) {
+        process_state_event(APP_EVENT_RECORD_STOP, FR_OK);
+        return;
+    }
 
-    if (tick_counter >= 1000U)
-    {
-        tick_counter = 0;
+    if (state == BYPASS &&
+        combo_has(buttons_mask, events, 2, NO_EVENT)) {
+        process_state_event(APP_EVENT_BYPASS_STOP, FR_OK);
+        return;
+    }
+
+    /*
+     * Из одной комбинации выбирается не более одного запроса режима.
+     * Если запрос отклонён или запуск не удался, другой режим не запускается.
+     */
+    if (combo_has(buttons_mask, events, 0, LONG_EVENT)) {
+        process_state_event(APP_EVENT_RECORD_START, FR_OK);
+    } else if (combo_has(buttons_mask, events, 1, SHORT_EVENT)) {
+        process_state_event(APP_EVENT_PLAY_REQUEST, FR_OK);
+    } else if (combo_has(buttons_mask, events, 2, LONG_EVENT)) {
+        process_state_event(APP_EVENT_BYPASS_START, FR_OK);
+    }
+
+    /* Регулировка громкости обрабатывается после запроса режима. */
+    if (combo_has(buttons_mask, events, 6, SHORT_EVENT)) {
+        process_state_event(APP_EVENT_VOLUME_UP, FR_OK);
+    }
+
+    if (combo_has(buttons_mask, events, 7, SHORT_EVENT)) {
+        process_state_event(APP_EVENT_VOLUME_DOWN, FR_OK);
     }
 }
-void periph_init()
+
+
+/* ============================================================================
+ * Обработка событий и переходов между состояниями
+ * ========================================================================== */
+
+static void process_state_event(app_event_t event, FRESULT error)
 {
-    // Инициализация RTT (SEGGER RTT)
+    /* Включение ACHTUNG разрешено из любого обычного режима. */
+    if (event == APP_EVENT_ACHTUNG_ON) {
+        if (state != ACHTUNG) {
+            interrupt_mode(state);
+
+            state = ACHTUNG;
+            SEGGER_RTT_printf(0, "ACHTUNG started\r\n");
+        }
+
+        return;
+    }
+
+    /* В режиме ACHTUNG обрабатывается только событие выключения. */
+    if (state == ACHTUNG) {
+        if (event == APP_EVENT_ACHTUNG_OFF) {
+            state = IDLE;
+            SEGGER_RTT_printf(0, "ACHTUNG finished\r\n");
+        }
+
+        return;
+    }
+
+    /* Общие команды не изменяют состояние. */
+    if (process_common_event(event)) {
+        return;
+    }
+
+    /* Переходы обычных режимов. */
+    switch (state) {
+    case IDLE:
+        switch (event) {
+        case APP_EVENT_RECORD_START:
+            if (start_recording() == FR_OK) {
+                state = RECORDING;
+            }
+            break;
+
+        case APP_EVENT_PLAY_REQUEST:
+            if (start_playback() == FR_OK) {
+                state = PLAYING;
+            }
+            break;
+
+        case APP_EVENT_BYPASS_START:
+            start_bypass();
+            state = BYPASS;
+            break;
+
+        default:
+            break;
+        }
+        break;
+
+    case RECORDING:
+        if (event == APP_EVENT_RECORD_STOP ||
+            event == APP_EVENT_RECORDING_ERROR) {
+            stop_recording(event, error);
+            state = IDLE;
+        }
+        break;
+
+    case PLAYING:
+        if (event == APP_EVENT_PLAYBACK_FINISHED ||
+            event == APP_EVENT_PLAYBACK_ERROR) {
+            finish_playback(event, error);
+            state = IDLE;
+        }
+        break;
+
+    case BYPASS:
+        if (event == APP_EVENT_BYPASS_STOP) {
+            stop_bypass();
+            state = IDLE;
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+
+/* ============================================================================
+ * Общие команды без изменения состояния
+ * ========================================================================== */
+
+/* Возвращает 1, если событие обработано, иначе 0. */
+static int process_common_event(app_event_t event)
+{
+    switch (event) {
+    case APP_EVENT_VOLUME_UP:
+        aic3104_loud_up();
+        SEGGER_RTT_printf(0, "+\r\n");
+        return 1;
+
+    case APP_EVENT_VOLUME_DOWN:
+        aic3104_loud_down();
+        SEGGER_RTT_printf(0, "-\r\n");
+        return 1;
+
+    default:
+        return 0;
+    }
+}
+
+
+/* ============================================================================
+ * Периодическое обслуживание текущего состояния
+ * ========================================================================== */
+
+static void process_state_logic(void)
+{
+    switch (state) {
+    case PLAYING: {
+        FRESULT result = audio_playback_task();
+
+        if (result != FR_OK) {
+            process_state_event(APP_EVENT_PLAYBACK_ERROR, result);
+        } else if (!audio_playback_is_active()) {
+            process_state_event(APP_EVENT_PLAYBACK_FINISHED, FR_OK);
+        }
+        break;
+    }
+
+    case RECORDING: {
+        FRESULT result = wav_recording_task();
+
+        if (result != FR_OK) {
+            process_state_event(APP_EVENT_RECORDING_ERROR, result);
+        }
+        break;
+    }
+
+    // Без переодического обслуживания
+    case IDLE:
+    case BYPASS:
+    case ACHTUNG:
+        break;
+
+    default:
+        break;
+    }
+}
+
+
+/* ============================================================================
+ * Преобразование состояния кнопки ACHTUNG в события
+ * ========================================================================== */
+
+static void process_achtung_button(void)
+{
+    static uint8_t previous_state = 1;
+
+    uint8_t current_state = debounced_pins[DEBOUNCE_INPUT_ACHTUNG].state;
+
+    /* Событие формируется только при изменении обработанного уровня. */
+    if (current_state == previous_state) {
+        return;
+    }
+
+    previous_state = current_state;
+
+    if (current_state != 1U) {
+        process_state_event(APP_EVENT_ACHTUNG_ON, FR_OK);
+    } else {
+        process_state_event(APP_EVENT_ACHTUNG_OFF, FR_OK);
+    }
+}
+
+
+/* ============================================================================
+ * Управление усилителями
+ * ========================================================================== */
+
+static void mute_amplifiers(void)
+{
+    LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
+    LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
+}
+
+static void unmute_amplifiers(void)
+{
+    LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
+    LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
+}
+
+
+/* ============================================================================
+ * Действия режима записи
+ * ========================================================================== */
+
+/* Функции действий не изменяют состояние и не отправляют события. */
+static FRESULT start_recording(void)
+{
+    mute_amplifiers();
+
+    aic3104_soft_reset();
+    aic3104_init_clocking();
+    aic3104_line1lp_to_i2s();
+
+    FRESULT result = wav_recording_start(AUDIO_FILENAME);
+
+    if (result == FR_OK) {
+        SEGGER_RTT_printf(0, "WAV recording started\r\n");
+    } else {
+        SEGGER_RTT_printf(
+            0, "WAV recording start error: %d\r\n", (int)result
+        );
+    }
+
+    return result;
+}
+
+static void stop_recording(app_event_t reason, FRESULT error)
+{
+    FRESULT result = wav_recording_end();
+
+    mute_amplifiers();
+
+    switch (reason) {
+    case APP_EVENT_RECORDING_ERROR:
+        SEGGER_RTT_printf(
+            0, "WAV write error: %d, end: %d\r\n",
+            (int)error, (int)result
+        );
+        break;
+
+    case APP_EVENT_ACHTUNG_ON:
+        SEGGER_RTT_printf(
+            0, "WAV recording interrupted: %d\r\n", (int)result
+        );
+        break;
+
+    default:
+        SEGGER_RTT_printf(
+            0, "WAV recording finished: %d\r\n", (int)result
+        );
+        break;
+    }
+}
+
+
+/* ============================================================================
+ * Действия режима воспроизведения
+ * ========================================================================== */
+
+static FRESULT start_playback(void)
+{
+    mute_amplifiers();
+
+    aic3104_soft_reset();
+    aic3104_init_clocking();
+    aic3104_i2s_to_hprout();
+
+    FRESULT result = audio_playback_start(
+        AUDIO_FILENAME, AUDIO_FORMAT_WAV
+    );
+
+    if (result == FR_OK) {
+        unmute_amplifiers();
+        SEGGER_RTT_printf(0, "WAV playback started\r\n");
+    } else {
+        SEGGER_RTT_printf(
+            0, "WAV playback start error: %d\r\n", (int)result
+        );
+    }
+
+    return result;
+}
+
+/*
+ * При штатном завершении и ошибке воспроизведение уже остановлено
+ * внутри audio_playback_task().
+ */
+static void finish_playback(app_event_t reason, FRESULT error)
+{
+    mute_amplifiers();
+
+    if (reason == APP_EVENT_PLAYBACK_ERROR) {
+        SEGGER_RTT_printf(
+            0, "WAV playback error: %d\r\n", (int)error
+        );
+    } else {
+        SEGGER_RTT_printf(0, "WAV playback finished\r\n");
+    }
+}
+
+
+/* ============================================================================
+ * Действия режима аналогового обхода
+ * ========================================================================== */
+
+static void start_bypass(void)
+{
+    mute_amplifiers();
+
+    aic3104_soft_reset();
+    aic3104_init_clocking();
+    aic3104_init_analog_bypass();
+
+    unmute_amplifiers();
+
+    SEGGER_RTT_printf(0, "Bypass started\r\n");
+}
+
+static void stop_bypass(void)
+{
+    mute_amplifiers();
+
+    SEGGER_RTT_printf(0, "Bypass finished\r\n");
+}
+
+
+/* ============================================================================
+ * Завершение текущего режима перед входом в ACHTUNG
+ * ========================================================================== */
+
+static void interrupt_mode(app_state_t previous_state)
+{
+    mute_amplifiers();
+
+    switch (previous_state) {
+    case RECORDING:
+        stop_recording(APP_EVENT_ACHTUNG_ON, FR_OK);
+        break;
+
+    case PLAYING:
+        app_playback_abort();
+        break;
+
+    case BYPASS:
+        stop_bypass();
+        break;
+
+    default:
+        break;
+    }
+}
+
+
+/* ============================================================================
+ * Инициализация периферии
+ * ========================================================================== */
+
+void periph_init(void)
+{
+    /* Отладочный журнал и системное тактирование. */
     SEGGER_RTT_Init();
 
-    // Инициализация пинов и тактирования
     Clock_Init();
-    // Применение настроек тактирования из регистров
     SystemCoreClockUpdate();
-
     SysTick_Config(SystemCoreClock / 1000);
 
+    /* Порты, прерывания и интерфейсы периферии. */
     GPIO_Init();
     NVIC_Init();
 
     LedController_PeriphInit();
-
     soft_i2c_init();
 
+    /* Карта памяти и её подключение к дисковому интерфейсу. */
     sd_status_t status = sd_init(&card_info);
-    if (status != SD_OK)
-    {
+
+    if (status != SD_OK) {
         SEGGER_RTT_printf(0, "SD init error: %d\r\n", status);
         return;
     }
+
     diskio_set_sd_card(&card_info);
+
+    /* Счётчик измерения производительности. */
     perf_counter_init();
+}
+
+
+/* ============================================================================
+ * Обработчик системного таймера
+ * ========================================================================== */
+
+void SysTick_Handler(void)
+{
+    uptime_ms++;
+    tick_counter++;
+
+    if (tick_counter >= 1000U) {
+        tick_counter = 0;
+    }
+}
+
+// TODO
+static void app_playback_abort()
+{
+
 }

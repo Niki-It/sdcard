@@ -158,5 +158,13 @@ void GPIO_Init(void)
     gpio_mute_amp.Pull = LL_GPIO_PULL_DOWN;
     LL_GPIO_Init(GPIOB, &gpio_mute_amp);
 
+    // === 9. Настройка пина для пожарной тревоги (PC15) ===
+    LL_GPIO_InitTypeDef gpio_achtung = {0};
+    gpio_achtung.Pin = LL_GPIO_PIN_15;
+    gpio_achtung.Mode = LL_GPIO_MODE_INPUT;
+    gpio_achtung.Speed = LL_GPIO_SPEED_FREQ_LOW;
+    gpio_achtung.Pull = LL_GPIO_PULL_NO; // Аппаратная подтяжка на плате
+    LL_GPIO_Init(GPIOC, &gpio_achtung);
+
     led_controller_gpio_init();
 }

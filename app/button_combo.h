@@ -1,9 +1,14 @@
+
 #pragma once
-#include "SEGGER_RTT.h"
 
-void set_comdo_cycle_timeout(uint8_t timeout);
-void process_button_combinations(const ButtonStatus* status);
-void flush_combo(void);
+#include <stdint.h>
+#include "led_controller/led_controller.h"
 
-extern LedEvent combo_events[8]; 
-extern uint8_t  active_buttons_mask;
+#define BUTTON_COMBO_COUNT 8U
+
+void set_combo_cycle_timeout(uint8_t timeout);
+
+void process_button_combinations(const ButtonStatus *status);
+
+// Weak-функция, которую можно переопределить в другом .c файле
+void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]);

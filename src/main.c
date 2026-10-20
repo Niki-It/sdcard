@@ -1,5 +1,4 @@
 #include "main.h"
-#include "soft_i2c.h"
 #include "aic3104.h"
 #include "mux.h"
 #include "debounce.h"
@@ -16,7 +15,7 @@
 #include "media/wav_decoder.h"
 #include "media/audio_playback.h"
 #include "perf_counter/perf_counter.h"
-#include "led_controller/button.h"
+#include "i2c.h"
 
 /* ============================================================================
  * Константы 
@@ -32,6 +31,7 @@
 
 #define DEBOUNCE_PERIOD_MS          1U  // Периодичность вызова обработчика антидребезга
 #define ACHTUNG_DEBOUNCE_THRESHOLD  5U  // Количество вызовов обработчика с неизменным состоянием сигнала до его подтверждения
+#define TRK_DEBOUNCE_THRESHOLD      15U
 
 /* ============================================================================
  * Типы данных
@@ -40,6 +40,7 @@
 // Состояния
 typedef enum {
     IDLE,
+    TRK,
     RECORDING,
     PLAYING,
     BYPASS,
@@ -64,12 +65,16 @@ typedef enum {
     APP_EVENT_RECORDING_ERROR,
 
     APP_EVENT_ACHTUNG_ON,
-    APP_EVENT_ACHTUNG_OFF
+    APP_EVENT_ACHTUNG_OFF,
+
+    APP_EVENT_TRK_PRESSED,
+    APP_EVENT_TRK_RELEASED
 } app_event_t;
 
 // Пины с антидребезгом
 typedef enum {
     DEBOUNCE_INPUT_ACHTUNG,
+    DEBOUNCE_INPUT_TRK,
     DEBOUNCE_INPUT_COUNT
 } debounce_input_t;
 
@@ -82,7 +87,6 @@ uint32_t tick_counter = 1;
 uint32_t message_counter = 0;
 uint32_t send_counter = 0;
 
-Button trk_button = {0};
 
 sd_card_info_t card_info;
 
@@ -91,7 +95,12 @@ static pin_debounce_t debounced_pins[DEBOUNCE_INPUT_COUNT] = {
         .port = GPIOC,
         .pin = LL_GPIO_PIN_15,
         .threshold = ACHTUNG_DEBOUNCE_THRESHOLD
-    }
+    },
+    [DEBOUNCE_INPUT_TRK] = {
+        .port = GPIOC,
+        .pin = LL_GPIO_PIN_13,
+        .threshold = TRK_DEBOUNCE_THRESHOLD
+     }
 };
 
 // Отсчитывает миллисекунды - не удалять
@@ -117,6 +126,7 @@ void SysTick_Handler(void);
 void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]);
 
 static void process_achtung_button(void);
+static void process_trk_button(void);
 
 /* Управление усилителями. */
 static void mute_amplifiers(void);
@@ -131,6 +141,9 @@ static void finish_playback(app_event_t reason, FRESULT error);
 
 static void start_bypass(void);
 static void stop_bypass(void);
+
+static void start_trk(void);
+static void stop_trk(void);
 
 static void interrupt_mode(app_state_t previous_state);
 static void app_playback_abort();
@@ -162,23 +175,28 @@ int main(void)
 
     mute_amplifiers();
 
+    static uint32_t max_end = 0;
+
     while (1) 
     {
+        uint32_t start = perf_counter_now();
+
         pin_polling();
         debounce_process(uptime_ms);
         process_achtung_button();
-
-        // проверка DAT_TRK
-        next(&trk_button, LL_GPIO_IsInputPinSet(GPIOC, LL_GPIO_PIN_13));
-        if(released(&trk_button))
-        {
-            SEGGER_RTT_printf(0, "trk released %u\t\n", uptime_ms);
-        }
-
+        process_trk_button();
+        
         ButtonStatus button_status = poll_button_events();
 
         process_button_combinations(&button_status);
         process_state_logic();
+
+        uint32_t end = perf_counter_elapsed(start);
+
+        if(end > max_end)
+        {
+            max_end = end;
+        }
 
         if (can_send_command()) 
         {
@@ -287,6 +305,10 @@ static void process_state_event(app_event_t event, FRESULT error)
             }
             break;
 
+        case APP_EVENT_TRK_PRESSED:
+            start_trk();
+            break;
+
         case APP_EVENT_BYPASS_START:
             start_bypass();
             state = BYPASS;
@@ -319,7 +341,11 @@ static void process_state_event(app_event_t event, FRESULT error)
             state = IDLE;
         }
         break;
-
+    case TRK:
+        if (event == APP_EVENT_TRK_RELEASED) {
+            stop_trk();
+        }
+        break;
     default:
         break;
     }
@@ -381,6 +407,7 @@ static void process_state_logic(void)
     case IDLE:
     case BYPASS:
     case ACHTUNG:
+    case TRK:
         break;
 
     default:
@@ -412,6 +439,24 @@ static void process_achtung_button(void)
         process_state_event(APP_EVENT_ACHTUNG_OFF, FR_OK);
     }
 }
+static void process_trk_button(void)
+{
+    static uint8_t previous_state = 1U;
+    uint8_t current_state = debounced_pins[DEBOUNCE_INPUT_TRK].state;
+
+    if (current_state == previous_state) {
+        return;
+    }
+
+    previous_state = current_state;
+
+    if (current_state == 0U) {
+        process_state_event(APP_EVENT_TRK_PRESSED, FR_OK);
+    } else {
+        process_state_event(APP_EVENT_TRK_RELEASED, FR_OK);
+    }
+}
+
 
 
 /* ============================================================================
@@ -556,6 +601,28 @@ static void stop_bypass(void)
     SEGGER_RTT_printf(0, "Bypass finished\r\n");
 }
 
+static void start_trk(void)
+{
+    mux_select(2, MUX_CHANNEL_X2);
+    start_bypass();
+
+    LL_GPIO_SetOutputPin(GPIOB, LL_GPIO_PIN_7);
+
+    //SEGGER_RTT_printf(0, "TRK started\r\n");
+    state = TRK;
+}
+
+static void stop_trk(void)
+{
+    stop_bypass();
+
+    LL_GPIO_ResetOutputPin(GPIOB, LL_GPIO_PIN_7);
+    mux_select(2, MUX_CHANNEL_X1);
+
+    //SEGGER_RTT_printf(0, "TRK finished\r\n");
+    state = IDLE;
+}
+
 
 /* ============================================================================
  * Завершение текущего режима перед входом в ACHTUNG
@@ -576,6 +643,9 @@ static void interrupt_mode(app_state_t previous_state)
 
     case BYPASS:
         stop_bypass();
+        break;
+    case TRK:
+        stop_trk();
         break;
 
     default:
@@ -602,7 +672,7 @@ void periph_init(void)
     NVIC_Init();
 
     LedController_PeriphInit();
-    soft_i2c_init();
+    i2c_init();
 
     /* Карта памяти и её подключение к дисковому интерфейсу. */
     sd_status_t status = sd_init(&card_info);

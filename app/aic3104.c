@@ -1,5 +1,5 @@
 #include "aic3104.h"
-#include "soft_i2c.h"
+#include "i2c.h"
 #include "stm32f4xx_ll_bus.h"
 #include "stm32f4xx_ll_gpio.h"
 #include "stm32f4xx_ll_utils.h"
@@ -16,17 +16,17 @@ void aic3104_init(void) {
 }
 
 int8_t aic3104_ping(void) {
-    return soft_i2c_ping(AIC3104_I2C_ADDR, I2C_TIMEOUT_MS);
+    return i2c_ping(AIC3104_I2C_ADDR, I2C_TIMEOUT_MS);
 }
 
 void aic3104_write_reg(uint8_t reg, uint8_t val) {
     uint8_t buf[2] = {reg, val};
-    soft_i2c_master_tx(AIC3104_I2C_ADDR, buf, 2, I2C_TIMEOUT_MS);
+    i2c_master_tx(AIC3104_I2C_ADDR, buf, 2, I2C_TIMEOUT_MS);
 }
 
 uint8_t aic3104_read_reg(uint8_t reg) {
     uint8_t val = 0xFF;
-    int8_t res = soft_i2c_write_read(AIC3104_I2C_ADDR, 
+    int8_t res = i2c_write_read(AIC3104_I2C_ADDR, 
                                       &reg, 1, 
                                       &val, 1, 
                                       I2C_TIMEOUT_MS);

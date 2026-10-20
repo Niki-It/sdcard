@@ -2,22 +2,31 @@
 #include "gpio.h"
 #include "stm32f4xx_ll_gpio.h"
 
-#include "soft_i2c.h"
 #include "aic3104.h"
 #include "mux.h"
 #include "led_controller/led_raw/led_raw.h"
 
-void GPIO_Init(void)
+#define CODEC_I2C_PORT       GPIOB
+#define CODEC_I2C_SCL_PIN    LL_GPIO_PIN_10
+#define CODEC_I2C_SDA_PIN    LL_GPIO_PIN_11
+#define CODEC_I2C_GPIO_AF    LL_GPIO_AF_4
+void I2C2_GPIO_Init(void)
 {
-    // === 1. Настройка пинов Soft I2C (PB10, PB11) ===
+
     LL_GPIO_InitTypeDef gpio_i2c = {0};
-    gpio_i2c.Pin = SOFT_I2C_SCL_PIN | SOFT_I2C_SDA_PIN;
-    gpio_i2c.Mode = LL_GPIO_MODE_OUTPUT;
+
+    gpio_i2c.Pin = CODEC_I2C_SCL_PIN | CODEC_I2C_SDA_PIN;
+    gpio_i2c.Mode = LL_GPIO_MODE_ALTERNATE;
     gpio_i2c.Speed = LL_GPIO_SPEED_FREQ_HIGH;
     gpio_i2c.OutputType = LL_GPIO_OUTPUT_OPENDRAIN;
-    gpio_i2c.Pull = LL_GPIO_PULL_UP;
-    LL_GPIO_Init(SOFT_I2C_PORT, &gpio_i2c);
+    gpio_i2c.Pull = LL_GPIO_PULL_NO; //На схеме "Codec" есть подтягивающие резисторы к питанию
+    gpio_i2c.Alternate = CODEC_I2C_GPIO_AF;
 
+    LL_GPIO_Init(CODEC_I2C_PORT, &gpio_i2c);
+}
+
+void GPIO_Init(void)
+{
     // === 2. Настройка пина RESET кодека (PC7) ===
     LL_GPIO_InitTypeDef gpio_rst = {0};
     gpio_rst.Pin = AIC3104_RESET_PIN;
@@ -167,12 +176,23 @@ void GPIO_Init(void)
     LL_GPIO_Init(GPIOC, &gpio_achtung);
 
     // === 10. DAT_TRK (PC13) ===
-    LL_GPIO_InitTypeDef trk = {0};
-    trk.Pin = LL_GPIO_PIN_13;
-    trk.Mode = LL_GPIO_MODE_INPUT;
-    trk.Speed = LL_GPIO_SPEED_FREQ_LOW;
-    trk.Pull = LL_GPIO_PULL_NO; // Аппаратная подтяжка на плате
-    LL_GPIO_Init(GPIOC, &trk);
+    LL_GPIO_InitTypeDef gpio_trk = {0};
+    gpio_trk.Pin = LL_GPIO_PIN_13;
+    gpio_trk.Mode = LL_GPIO_MODE_INPUT;
+    gpio_trk.Speed = LL_GPIO_SPEED_FREQ_LOW;
+    gpio_trk.Pull = LL_GPIO_PULL_NO; // Аппаратная подтяжка на плате
+    LL_GPIO_Init(GPIOC, &gpio_trk);
 
+    LL_GPIO_InitTypeDef gpio_opr = {0};
+    gpio_opr.Pin        = LL_GPIO_PIN_7;
+    gpio_opr.Mode       = LL_GPIO_MODE_OUTPUT;
+    gpio_opr.Speed      = LL_GPIO_SPEED_FREQ_LOW;
+    gpio_opr.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+    gpio_opr.Pull       = LL_GPIO_PULL_NO;
+
+    LL_GPIO_Init(GPIOB, &gpio_opr);
+
+    I2C2_GPIO_Init();
     led_controller_gpio_init();
 }
+

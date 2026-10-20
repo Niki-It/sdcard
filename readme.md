@@ -7,3 +7,12 @@ python scripts/bits.py - выводит биты числа.
 
 Никита C:/Program Files (x86)/Arm/GNU Toolchain mingw-w64-i686-arm-none-eabi
 Иван   C:/Program Files/Arm/GNU Toolchain mingw-w64-x86_64-arm-none-eabi
+
+uint32_t start = perf_counter_now();
+
+uint32_t end = perf_counter_elapsed(start);
+if(end > max_end)
+{
+    max_end = end;
+}
+perf_counter_cycles_to_us(max_end)

@@ -166,5 +166,13 @@ void GPIO_Init(void)
     gpio_achtung.Pull = LL_GPIO_PULL_NO; // Аппаратная подтяжка на плате
     LL_GPIO_Init(GPIOC, &gpio_achtung);
 
+    // === 10. DAT_TRK (PC13) ===
+    LL_GPIO_InitTypeDef trk = {0};
+    trk.Pin = LL_GPIO_PIN_13;
+    trk.Mode = LL_GPIO_MODE_INPUT;
+    trk.Speed = LL_GPIO_SPEED_FREQ_LOW;
+    trk.Pull = LL_GPIO_PULL_NO; // Аппаратная подтяжка на плате
+    LL_GPIO_Init(GPIOC, &trk);
+
     led_controller_gpio_init();
 }

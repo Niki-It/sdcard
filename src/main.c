@@ -16,7 +16,7 @@
 #include "media/wav_decoder.h"
 #include "media/audio_playback.h"
 #include "perf_counter/perf_counter.h"
-
+#include "led_controller/button.h"
 
 /* ============================================================================
  * Константы 
@@ -82,6 +82,8 @@ uint32_t tick_counter = 1;
 uint32_t message_counter = 0;
 uint32_t send_counter = 0;
 
+Button trk_button = {0};
+
 sd_card_info_t card_info;
 
 static pin_debounce_t debounced_pins[DEBOUNCE_INPUT_COUNT] = {
@@ -92,7 +94,8 @@ static pin_debounce_t debounced_pins[DEBOUNCE_INPUT_COUNT] = {
     }
 };
 
-static volatile uint32_t uptime_ms = 0;
+// Отсчитывает миллисекунды - не удалять
+volatile uint32_t uptime_ms = 0;
 static app_state_t state = IDLE;
 
 
@@ -159,17 +162,26 @@ int main(void)
 
     mute_amplifiers();
 
-    while (1) {
+    while (1) 
+    {
         pin_polling();
         debounce_process(uptime_ms);
         process_achtung_button();
+
+        // проверка DAT_TRK
+        next(&trk_button, LL_GPIO_IsInputPinSet(GPIOC, LL_GPIO_PIN_13));
+        if(released(&trk_button))
+        {
+            SEGGER_RTT_printf(0, "trk released %u\t\n", uptime_ms);
+        }
 
         ButtonStatus button_status = poll_button_events();
 
         process_button_combinations(&button_status);
         process_state_logic();
 
-        if (can_send_command()) {
+        if (can_send_command()) 
+        {
             send_SetLedState(USART2);
         }
     }

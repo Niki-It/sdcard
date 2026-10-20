@@ -39,7 +39,7 @@ void aic3104_init_clocking(void) {
     
     // R 101: CODEC_CLKIN от CLKDIV_OUT
     aic3104_write_reg(101, 0x01);
-    LL_mDelay(50);
+    LL_mDelay(1);
 }
 static uint8_t loud = 128 + 72;
 

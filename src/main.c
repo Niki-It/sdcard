@@ -16,6 +16,7 @@
 #include "media/audio_playback.h"
 #include "perf_counter/perf_counter.h"
 #include "i2c.h"
+#include "led_blinking.h"
 
 /* ============================================================================
  * Константы 
@@ -157,6 +158,9 @@ static void process_state_logic(void);
 static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event);
 
 
+extern uint8_t loud_max;
+extern uint8_t loud_min;
+extern Leds leds;
 /* ============================================================================
  * Точка входа и основной цикл
  * ========================================================================== */
@@ -189,6 +193,7 @@ int main(void)
         ButtonStatus button_status = poll_button_events();
 
         process_button_combinations(&button_status);
+        process_leds(uptime_ms);
         process_state_logic();
 
         uint32_t end = perf_counter_elapsed(start);
@@ -361,12 +366,38 @@ static int process_common_event(app_event_t event)
 {
     switch (event) {
     case APP_EVENT_VOLUME_UP:
-        aic3104_loud_up();
+    aic3104_loud_up();
+
+        if (!loud_min) {
+            leds.VD8 = 0;
+        }
+
+        if (loud_max) {
+            request_blinking(VD7, 0, 0);
+            leds.VD7 = 1;
+        } else {
+            request_blinking(VD7, 2, 200);
+        }
+
+        set_leds_state(leds);
         SEGGER_RTT_printf(0, "+\r\n");
         return 1;
 
     case APP_EVENT_VOLUME_DOWN:
         aic3104_loud_down();
+
+        if (!loud_max) {
+            leds.VD7 = 0;
+        }
+
+        if (loud_min) {
+            request_blinking(VD8, 0, 0);
+            leds.VD8 = 1;
+        } else {
+            request_blinking(VD8, 2, 200);
+        }
+
+        set_leds_state(leds);
         SEGGER_RTT_printf(0, "-\r\n");
         return 1;
 
@@ -608,7 +639,7 @@ static void start_trk(void)
 
     LL_GPIO_SetOutputPin(GPIOB, LL_GPIO_PIN_7);
 
-    //SEGGER_RTT_printf(0, "TRK started\r\n");
+    SEGGER_RTT_printf(0, "TRK started\r\n");
     state = TRK;
 }
 
@@ -619,7 +650,7 @@ static void stop_trk(void)
     LL_GPIO_ResetOutputPin(GPIOB, LL_GPIO_PIN_7);
     mux_select(2, MUX_CHANNEL_X1);
 
-    //SEGGER_RTT_printf(0, "TRK finished\r\n");
+    SEGGER_RTT_printf(0, "TRK finished\r\n");
     state = IDLE;
 }
 

@@ -35,7 +35,7 @@ uint8_t aic3104_read_reg(uint8_t reg) {
 
 void aic3104_init_clocking(void) {
     aic3104_write_reg(0x00, 0x00);
-    aic3104_write_reg(0x01, 0x80);
+    aic3104_write_reg(0x01, 0x80); // исправлена запись
     
     // R 101: CODEC_CLKIN от CLKDIV_OUT
     aic3104_write_reg(101, 0x01);
@@ -152,6 +152,9 @@ void aic3104_soft_reset()
     aic3104_write_reg(1, 0x80);
 }
 
+uint8_t loud_max;
+uint8_t loud_min;
+
 void aic3104_loud_down()
 {
 
@@ -159,9 +162,15 @@ void aic3104_loud_down()
 
     absolute += 3;
 
-    if(absolute > 72)
+    if(absolute >= 72)
     {
         absolute = 72;
+        loud_min = 1;
+    }
+    else
+    {
+        loud_min = 0;
+        loud_max = 0;
     }
 
     loud = absolute | 0b10000000;
@@ -176,9 +185,15 @@ void aic3104_loud_up()
 
     uint8_t absolute = loud & 0b01111111;
 
-    if(absolute < 3 || absolute > 127)
+    if(absolute <= 3 || absolute > 127)
     {
         absolute = 3;
+        loud_max = 1;
+    }
+    else
+    {
+        loud_min = 0;
+        loud_max = 0;
     }
     absolute -= 3;
 

@@ -186,7 +186,6 @@ int main(void)
 
     while (1) 
     {
-        uint32_t start = perf_counter_now();
 
         pin_polling();
         debounce_process(uptime_ms);
@@ -198,13 +197,6 @@ int main(void)
         process_button_combinations(&button_status);
         process_leds(uptime_ms);
         process_state_logic();
-
-        uint32_t end = perf_counter_elapsed(start);
-
-        if(end > max_end)
-        {
-            max_end = end;
-        }
 
         if (can_send_command()) 
         {

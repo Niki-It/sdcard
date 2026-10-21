@@ -26,5 +26,3 @@ void led_controller_clock_init(void);
 void usart2_handler(void);
 void uart4_handler(void);
 void TIM6_Init(void);
-extern void tim6_handler(void);
-

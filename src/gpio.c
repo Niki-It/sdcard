@@ -10,6 +10,7 @@
 #define CODEC_I2C_SCL_PIN    LL_GPIO_PIN_10
 #define CODEC_I2C_SDA_PIN    LL_GPIO_PIN_11
 #define CODEC_I2C_GPIO_AF    LL_GPIO_AF_4
+
 void I2C2_GPIO_Init(void)
 {
 
@@ -189,7 +190,6 @@ void GPIO_Init(void)
     gpio_opr.Speed      = LL_GPIO_SPEED_FREQ_LOW;
     gpio_opr.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
     gpio_opr.Pull       = LL_GPIO_PULL_NO;
-
     LL_GPIO_Init(GPIOB, &gpio_opr);
 
     I2C2_GPIO_Init();

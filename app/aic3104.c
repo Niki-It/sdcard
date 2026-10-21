@@ -155,7 +155,7 @@ void aic3104_soft_reset()
 uint8_t loud_max;
 uint8_t loud_min;
 
-void aic3104_loud_down()
+void aic3104_volume_down()
 {
 
     uint8_t absolute = loud & 0b01111111;
@@ -180,7 +180,7 @@ void aic3104_loud_down()
    aic3104_write_reg(0x3C, loud);
 }
 
-void aic3104_loud_up()
+void aic3104_volume_up()
 {
 
     uint8_t absolute = loud & 0b01111111;
@@ -202,4 +202,12 @@ void aic3104_loud_up()
     aic3104_write_reg(47, loud);
     aic3104_write_reg(0x2E, loud);
     aic3104_write_reg(0x3C, loud);
+}
+
+uint8_t is_max_volume(){
+    return loud_max;
+} 
+
+uint8_t is_min_volume(){
+    return loud_min;
 }

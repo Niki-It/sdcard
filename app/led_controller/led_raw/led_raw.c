@@ -9,12 +9,13 @@
 #include <stm32f4xx_ll_usart.h>
 #include <stm32f4xx_ll_tim.h>
 
+#define RESPONSE_LENGTH 4
+
 RawResponce raw_response;
 volatile uint8_t is_response_ready;
 volatile uint32_t rx_counter = 0;
 
 uint8_t responce_idx = 0;
-#define RESPONSE_LENGTH 4
 
 static void inc_frame_number();
 volatile uint8_t frame_number = 0;
@@ -118,15 +119,6 @@ void inc_frame_number()
     }
 }
 
-
-void TIM6_DAC_IRQHandler(void)
-{
-    if (LL_TIM_IsActiveFlag_UPDATE(TIM6))
-    {
-        tim6_handler();
-        LL_TIM_ClearFlag_UPDATE(TIM6);
-    }
-}
 // ------------------ Инициализация периферии ---------------------------
 void led_controller_nvic_init()
 {
@@ -235,6 +227,3 @@ void TIM6_Init(void)
 
     LL_TIM_EnableCounter(TIM6);
 }
-
-
-

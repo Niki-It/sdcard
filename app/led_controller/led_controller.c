@@ -7,7 +7,7 @@
 SetLedStateCommand formSetLedStateCommand();
 
 static ButtonEvents button_events;
-Leds leds;
+static Leds leds;
 static SetLedStateCommand cmd;
 // ---------------- Core логика ---------------------------
 ButtonStatus poll_button_events()
@@ -111,9 +111,14 @@ uint8_t can_send_command()
     }
     return 0;
 }
-__attribute__((weak))
+
 void tim6_handler(void)
 {
     is_send_command = 1;
-    set_all_leds(leds);
+    tim6_callback();
+}
+
+__attribute__((weak))
+void tim6_callback(void) {
+
 }

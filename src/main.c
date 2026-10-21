@@ -19,6 +19,7 @@
 #include "led_blinking.h"
 #include "stdbool.h"
 
+
 /* ============================================================================
  * Константы 
  * ========================================================================== */
@@ -159,9 +160,6 @@ static void process_state_logic(void);
 static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event);
 
 
-// TODO: убрать это говно и переписать по нормальному
-extern uint8_t loud_max;
-extern uint8_t loud_min;
 /* ============================================================================
  * Точка входа и основной цикл
  * ========================================================================== */
@@ -361,17 +359,17 @@ static int process_common_event(app_event_t event)
 {
     switch (event) {
     case APP_EVENT_VOLUME_UP:
-        aic3104_loud_up();
+        aic3104_volume_up();
 
-        if (!loud_min) {
+        if (!is_min_volume()) {
             request_blinking(VD8, 0, 0);
             set_leds(LED_VD8, false);
         }
 
         request_blinking(VD7, 0, 0);
-        set_leds(LED_VD7, loud_max != 0U);
+        set_leds(LED_VD7, is_max_volume() != 0U);
 
-        if (!loud_max) {
+        if (!is_max_volume()) {
             request_blinking(VD7, 2, 200);
         }
 
@@ -379,17 +377,17 @@ static int process_common_event(app_event_t event)
         return 1;
 
     case APP_EVENT_VOLUME_DOWN:
-        aic3104_loud_down();
+        aic3104_volume_down();
 
-        if (!loud_max) {
+        if (!is_max_volume()) {
             request_blinking(VD7, 0, 0);
             set_leds(LED_VD7, false);
         }
 
         request_blinking(VD8, 0, 0);
-        set_leds(LED_VD8, loud_min != 0U);
+        set_leds(LED_VD8, is_min_volume() != 0U);
 
-        if (!loud_min) {
+        if (!is_min_volume()) {
             request_blinking(VD8, 2, 200);
         }
 

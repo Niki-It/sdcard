@@ -36,7 +36,9 @@ void aic3104_line1rp_to_i2s(void);
 void aic3104_i2s_to_hplout();
 void aic3104_i2s_to_hprout();
 
-void aic3104_loud_up();
-void aic3104_loud_down();
+void aic3104_volume_up();
+void aic3104_volume_down();
+uint8_t is_max_volume();
+uint8_t is_min_volume();
 
 #endif

@@ -44,6 +44,7 @@ typedef struct
     LedEvent VD7;
     LedEvent VD8;
 } ButtonEvents;
+
 #define LED_VD1  (1U << 0)
 #define LED_VD2  (1U << 1)
 #define LED_VD3  (1U << 2)
@@ -76,7 +77,8 @@ void set_all_leds(Leds leds);
 void set_leds(uint16_t mask, bool enabled);
 
 void send_SetLedState(USART_TypeDef *USARTx);
-extern void tim6_handler();
+void tim6_handler();
+void tim6_callback(void);
 uint8_t can_send_command();
 // ------ Вспомогательные функции ---------------------
 void LedController_PeriphInit();

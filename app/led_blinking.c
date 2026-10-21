@@ -3,7 +3,6 @@
 #include "led_controller/led_controller.h"
 #include "led_controller/led_raw/led_raw.h"
 
-extern Leds leds;
 /* ============================================================================
  * Внутреннее состояние
  * ========================================================================== */
@@ -16,6 +15,7 @@ typedef struct {
 } led_blinking_state_t;
 
 static led_blinking_state_t blinking[LED_BLINKING_COUNT] = {0};
+static Leds leds;
 
 
 /* ============================================================================
@@ -46,10 +46,7 @@ static void toggle_led(blinking_led_t led)
  * Запуск или замена паттерна
  * ========================================================================== */
 
-void request_blinking(
-    blinking_led_t led,
-    uint16_t count,
-    uint32_t period_ms)
+void request_blinking(blinking_led_t led, uint16_t count, uint32_t period_ms)
 {
     if ((unsigned)led >= LED_BLINKING_COUNT) {
         return;
@@ -105,4 +102,8 @@ void process_leds(uint32_t current_tick)
         toggle_led((blinking_led_t)i);
         item->toggles_left--;
     }
+}
+
+void tim6_callback(void) {
+    set_all_leds(leds);
 }

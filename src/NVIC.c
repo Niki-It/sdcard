@@ -3,9 +3,7 @@
 #include "tusb.h"
 #include "led_controller/led_controller.h"
 #include "led_controller/led_raw/led_raw.h"
-
-
-extern void I2S2_Callback();
+#include "stm32f4xx_ll_tim.h"
 
 void NVIC_Init(void){
 
@@ -31,6 +29,14 @@ void UART4_IRQHandler(void)
     uart4_handler();
 }
 
+void TIM6_DAC_IRQHandler(void)
+{
+    if (LL_TIM_IsActiveFlag_UPDATE(TIM6))
+    {
+        tim6_handler();
+        LL_TIM_ClearFlag_UPDATE(TIM6);
+    }
+}
 
 // Если используете USB OTG FS (встроенный разъём):
 void OTG_FS_IRQHandler(void)

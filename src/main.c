@@ -178,8 +178,6 @@ int main(void)
 
     mute_amplifiers();
 
-    static uint32_t max_end = 0;
-
     set_leds(VD1 | VD2 | VD3, true);
 
     while (1) 

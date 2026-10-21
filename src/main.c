@@ -2,7 +2,6 @@
 /* ============================================================================
  * Константы 
  * ========================================================================== */
-
 #define AMP_PORT        GPIOB
 #define APB_PIN         LL_GPIO_PIN_6
 #define OPR_PIN         LL_GPIO_PIN_7
@@ -24,6 +23,39 @@ typedef enum {
     DEBOUNCE_INPUT_TRK,
     DEBOUNCE_INPUT_COUNT
 } debounce_input_t;
+// Состояния
+typedef enum {
+    IDLE,
+    TRK,
+    RECORDING,
+    PLAYING,
+    BYPASS,
+    ACHTUNG
+} app_state_t;
+
+// События
+typedef enum {
+    APP_EVENT_RECORD_START,
+    APP_EVENT_RECORD_STOP,
+
+    APP_EVENT_PLAY_REQUEST,
+    APP_EVENT_PLAYBACK_FINISHED,
+    APP_EVENT_PLAYBACK_ERROR,
+
+    APP_EVENT_BYPASS_START,
+    APP_EVENT_BYPASS_STOP,
+
+    APP_EVENT_VOLUME_UP,
+    APP_EVENT_VOLUME_DOWN,
+
+    APP_EVENT_RECORDING_ERROR,
+
+    APP_EVENT_ACHTUNG_ON,
+    APP_EVENT_ACHTUNG_OFF,
+
+    APP_EVENT_TRK_PRESSED,
+    APP_EVENT_TRK_RELEASED
+} app_event_t;
 
 /* ============================================================================
  * Глобальные переменные
@@ -48,6 +80,53 @@ static pin_debounce_t debounced_pins[DEBOUNCE_INPUT_COUNT] = {
         .threshold = TRK_DEBOUNCE_THRESHOLD
      }
 };
+/* ============================================================================
+ * Прототипы внешних функций
+ * ========================================================================== */
+
+extern void diskio_set_sd_card(sd_card_info_t *info);
+
+
+/* ============================================================================
+ * Прототипы функций
+ * ========================================================================== */
+
+int main(void);
+void periph_init(void);
+void SysTick_Handler(void);
+
+void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]);
+
+static void process_achtung_button(void);
+static void process_trk_button(void);
+
+/* Управление усилителями. */
+static void mute_amplifiers(void);
+static void unmute_amplifiers(void);
+
+/* Запуск и завершение режимов. */
+static FRESULT start_recording(void);
+static void stop_recording(app_event_t reason, FRESULT error);
+
+static FRESULT start_playback(void);
+static void finish_playback(app_event_t reason, FRESULT error);
+
+static void start_bypass(void);
+static void stop_bypass(void);
+
+static void start_trk(void);
+static void stop_trk(void);
+
+static void interrupt_mode(app_state_t previous_state);
+static void app_playback_abort();
+
+/* Обработка событий и обслуживание текущего состояния. */
+static int process_common_event(app_event_t event);
+static void process_state_event(app_event_t event, FRESULT error);
+static void process_state_logic(void);
+
+/* Проверка события отдельной кнопки в комбинации. */
+static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event);
 
 // Отсчитывает миллисекунды - не удалять
 volatile uint32_t uptime_ms = 0;

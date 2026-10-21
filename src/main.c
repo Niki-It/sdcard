@@ -8,7 +8,7 @@
 #define MUTE_AMP1_PIN   LL_GPIO_PIN_8
 #define MUTE_AMP2_PIN   LL_GPIO_PIN_9
 
-#define AUDIO_FILENAME "record.wav"
+#define AUDIO_FILENAME "record.mp3"
 
 #define DEBOUNCE_PERIOD_MS          1U  // Периодичность вызова обработчика антидребезга
 #define ACHTUNG_DEBOUNCE_THRESHOLD  5U  // Количество вызовов обработчика с неизменным состоянием сигнала до его подтверждения
@@ -152,7 +152,6 @@ int main(void)
 
     while (1) 
     {
-
         pin_polling();
         debounce_process(uptime_ms);
         process_achtung_button();
@@ -397,6 +396,9 @@ static void process_state_logic(void)
 
     // Без переодического обслуживания
     case IDLE:
+        tud_task();
+        break;
+        
     case BYPASS:
     case ACHTUNG:
     case TRK:
@@ -536,7 +538,7 @@ static FRESULT start_playback(void)
     aic3104_i2s_to_hprout();
 
     FRESULT result = audio_playback_start(
-        AUDIO_FILENAME, AUDIO_FORMAT_WAV
+        AUDIO_FILENAME, AUDIO_FORMAT_MP3
     );
 
     if (result == FR_OK) {

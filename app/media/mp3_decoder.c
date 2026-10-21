@@ -124,7 +124,7 @@ FRESULT mp3_decoder_prepare(FIL *file)
 
     mp3.decoder = MP3InitDecoder();
     if (mp3.decoder == NULL)
-        return FR_NOT_ENOUGH_CORE;
+        return FR_NOT_ENOUGH_CORE; 
 
     mp3.file = file;
 

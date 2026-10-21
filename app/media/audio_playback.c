@@ -436,6 +436,25 @@ FRESULT audio_playback_start(
         );
     }
 
+    uint32_t sample_rate = 48000U;
+
+    if (playback.format == AUDIO_FORMAT_MP3)
+    {
+        sample_rate = mp3_decoder_get_sample_rate();
+    }
+
+    /*
+    * Проверка в начале audio_playback_start() уже гарантирует,
+    * что I2S свободен. Настраиваем частоту до подготовки TX.
+    */
+    if (i2s_set_sample_rate(sample_rate) != 0)
+    {
+        return finish_playback(
+            FR_NOT_READY,
+            AUDIO_PLAYBACK_ERROR
+        );
+    }
+
     if (i2s_tx_prepare() != 0)
     {
         return finish_playback(

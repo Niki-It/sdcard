@@ -321,6 +321,47 @@ void i2s_dma_init(void)
     state = I2S_IDLE;
 }
 
+int i2s_set_sample_rate(uint32_t sample_rate)
+{
+    if (sample_rate != LL_I2S_AUDIOFREQ_32K &&
+        sample_rate != LL_I2S_AUDIOFREQ_44K &&
+        sample_rate != LL_I2S_AUDIOFREQ_48K)
+    {
+        return -1;
+    }
+
+    if (state != I2S_IDLE ||
+        LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_3) ||
+        LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_4))
+    {
+        return -1;
+    }
+
+    LL_SPI_DisableDMAReq_RX(SPI2);
+    LL_SPI_DisableDMAReq_TX(I2S2ext);
+
+    LL_I2S_Disable(I2S2ext);
+    LL_I2S_Disable(SPI2);
+
+    LL_I2S_InitTypeDef cfg = {0};
+
+    cfg.Mode          = LL_I2S_MODE_MASTER_RX;
+    cfg.Standard      = LL_I2S_STANDARD_PHILIPS;
+    cfg.DataFormat    = LL_I2S_DATAFORMAT_16B;
+    cfg.MCLKOutput    = LL_I2S_MCLK_OUTPUT_ENABLE;
+    cfg.AudioFreq     = sample_rate;
+    cfg.ClockPolarity = LL_I2S_POLARITY_LOW;
+
+    if (LL_I2S_Init(SPI2, &cfg) != SUCCESS)
+    {
+        return -1;
+    }
+
+    LL_I2S_InitFullDuplex(I2S2ext, &cfg);
+
+    return 0;
+}
+
 void i2s_stop(void)
 {
     /*

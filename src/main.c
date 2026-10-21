@@ -178,7 +178,7 @@ int main(void)
 
     mute_amplifiers();
 
-    set_leds(VD1 | VD2 | VD3, true);
+    set_leds(LED_VD1 | LED_VD2 | LED_VD3 , true);
 
     while (1) 
     {

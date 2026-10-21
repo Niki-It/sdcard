@@ -44,6 +44,18 @@ typedef struct
     LedEvent VD7;
     LedEvent VD8;
 } ButtonEvents;
+#define LED_VD1  (1U << 0)
+#define LED_VD2  (1U << 1)
+#define LED_VD3  (1U << 2)
+#define LED_VD4  (1U << 3)
+#define LED_VD5  (1U << 4)
+#define LED_VD6  (1U << 5)
+#define LED_VD7  (1U << 6)
+#define LED_VD8  (1U << 7)
+#define LED_VD9  (1U << 8)
+
+#define LED_ALL  ((1U << 9) - 1U)
+
 typedef struct 
 {
     // 1 - готов, 0 не готов
@@ -60,7 +72,8 @@ typedef struct
 
 // ---------------- Core логика ---------------------------
 ButtonStatus poll_button_events();
-void set_leds_state(Leds leds);
+void set_all_leds(Leds leds);
+void set_leds(uint16_t mask, bool enabled);
 
 void send_SetLedState(USART_TypeDef *USARTx);
 extern void tim6_handler();

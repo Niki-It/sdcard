@@ -30,9 +30,21 @@ ButtonStatus poll_button_events()
 
     return button_status;
 }
-void set_leds_state(Leds new_leds)
+void set_all_leds(Leds new_leds)
 {
     leds = new_leds;
+}
+void set_leds(uint16_t mask, bool enabled)
+{
+    if (mask & LED_VD1) leds.VD1 = enabled;
+    if (mask & LED_VD2) leds.VD2 = enabled;
+    if (mask & LED_VD3) leds.VD3 = enabled;
+    if (mask & LED_VD4) leds.VD4 = enabled;
+    if (mask & LED_VD5) leds.VD5 = enabled;
+    if (mask & LED_VD6) leds.VD6 = enabled;
+    if (mask & LED_VD7) leds.VD7 = enabled;
+    if (mask & LED_VD8) leds.VD8 = enabled;
+    if (mask & LED_VD9) leds.VD9 = enabled;
 }
 void send_SetLedState(USART_TypeDef *USARTx)
 {
@@ -88,30 +100,6 @@ SetLedStateCommand formSetLedStateCommand()
     return cmd;
 }
 
-static Leds leds1 = {
-    .VD1 = 1,
-    .VD2 = 1,
-    .VD3 = 1,
-    .VD4 = 1,
-    .VD5 = 1,
-    .VD6 = 1,
-    .VD7 = 1,
-    .VD8 = 1,
-    .VD9 = 1
-};
-
-static Leds leds2 = {
-    .VD1 = 0,
-    .VD2 = 0,
-    .VD3 = 0,
-    .VD4 = 0,
-    .VD5 = 0,
-    .VD6 = 0,
-    .VD7 = 0,
-    .VD8 = 0,
-    .VD9 = 0
-};
-static bool next_led = false;
 static volatile uint8_t is_send_command; // Флаг отправки команды по таймеру
 
 uint8_t can_send_command()
@@ -127,5 +115,5 @@ __attribute__((weak))
 void tim6_handler(void)
 {
     is_send_command = 1;
-    set_leds_state(leds);
+    set_all_leds(leds);
 }

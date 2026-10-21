@@ -17,6 +17,7 @@
 #include "perf_counter/perf_counter.h"
 #include "i2c.h"
 #include "led_blinking.h"
+#include "stdbool.h"
 
 /* ============================================================================
  * Константы 
@@ -158,9 +159,9 @@ static void process_state_logic(void);
 static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event);
 
 
+// TODO: убрать это говно и переписать по нормальному
 extern uint8_t loud_max;
 extern uint8_t loud_min;
-extern Leds leds;
 /* ============================================================================
  * Точка входа и основной цикл
  * ========================================================================== */
@@ -180,6 +181,8 @@ int main(void)
     mute_amplifiers();
 
     static uint32_t max_end = 0;
+
+    set_leds(VD1 | VD2 | VD3, true);
 
     while (1) 
     {
@@ -366,20 +369,20 @@ static int process_common_event(app_event_t event)
 {
     switch (event) {
     case APP_EVENT_VOLUME_UP:
-    aic3104_loud_up();
+        aic3104_loud_up();
 
         if (!loud_min) {
-            leds.VD8 = 0;
+            request_blinking(VD8, 0, 0);
+            set_leds(LED_VD8, false);
         }
 
-        if (loud_max) {
-            request_blinking(VD7, 0, 0);
-            leds.VD7 = 1;
-        } else {
+        request_blinking(VD7, 0, 0);
+        set_leds(LED_VD7, loud_max != 0U);
+
+        if (!loud_max) {
             request_blinking(VD7, 2, 200);
         }
 
-        set_leds_state(leds);
         SEGGER_RTT_printf(0, "+\r\n");
         return 1;
 
@@ -387,17 +390,17 @@ static int process_common_event(app_event_t event)
         aic3104_loud_down();
 
         if (!loud_max) {
-            leds.VD7 = 0;
+            request_blinking(VD7, 0, 0);
+            set_leds(LED_VD7, false);
         }
 
-        if (loud_min) {
-            request_blinking(VD8, 0, 0);
-            leds.VD8 = 1;
-        } else {
+        request_blinking(VD8, 0, 0);
+        set_leds(LED_VD8, loud_min != 0U);
+
+        if (!loud_min) {
             request_blinking(VD8, 2, 200);
         }
 
-        set_leds_state(leds);
         SEGGER_RTT_printf(0, "-\r\n");
         return 1;
 

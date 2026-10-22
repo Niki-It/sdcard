@@ -17,9 +17,9 @@ static struct
     uint8_t input[MP3_INPUT_BYTES];
     uint32_t position;
     uint32_t available;
+    uint32_t sample_rate;
     bool eof;
 } mp3;
-
 
 static FRESULT seek_to(FIL *file, FSIZE_t offset)
 {
@@ -127,6 +127,60 @@ FRESULT mp3_decoder_prepare(FIL *file)
         return FR_NOT_ENOUGH_CORE;
 
     mp3.file = file;
+
+    error = refill();
+    if (error != FR_OK)
+    {
+        mp3_decoder_close();
+        return error;
+    }
+
+    if (mp3.available < 6U)
+    {
+        mp3_decoder_close();
+        return FR_INT_ERR;
+    }
+
+    MP3FrameInfo info;
+
+    if (MP3FindSyncWord(mp3.input, 2) != 0 ||
+        MP3GetNextFrameInfo(mp3.decoder, &info, mp3.input) != 0)
+    {
+        mp3_decoder_close();
+        return FR_INT_ERR;
+    }
+
+    if (info.version != MPEG1 ||
+        info.layer != 3 ||
+        info.bitsPerSample != 16 ||
+        (info.nChans != 1 && info.nChans != 2) ||
+        info.outputSamps != 1152 * info.nChans ||
+        (info.samprate != 32000 &&
+        info.samprate != 44100 &&
+        info.samprate != 48000) ||
+        info.bitrate <= 0)
+    {
+        mp3_decoder_close();
+        return FR_INVALID_PARAMETER;
+    }
+
+    uint32_t frame_bytes =
+        144U * (uint32_t)info.bitrate /
+        (uint32_t)info.samprate +
+        ((mp3.input[2] >> 1) & 1U);
+
+    if (frame_bytes > mp3.available)
+    {
+        mp3_decoder_close();
+        return FR_INT_ERR;
+    }
+
+    mp3.sample_rate = (uint32_t)info.samprate;
+
+    /*
+    * Первый кадр остаётся в input.
+    * read_pcm() декодирует его обычным порядком.
+    */
     return FR_OK;
 }
 
@@ -205,9 +259,7 @@ FRESULT mp3_decoder_read_pcm(
             return FR_INVALID_PARAMETER;
         }
 
-        if (info.samprate != 32000 &&
-            info.samprate != 44100 &&
-            info.samprate != 48000)
+        if ((uint32_t)info.samprate != mp3.sample_rate)
         {
             return FR_INVALID_PARAMETER;
         }
@@ -241,7 +293,7 @@ FRESULT mp3_decoder_read_pcm(
 
         short *pcm = (short *)(destination + result->bytes);
         const unsigned char *next = input;
-        int remaining = (int)frame_bytes;
+        size_t remaining = (size_t)frame_bytes;
 
         int status = MP3Decode(
             mp3.decoder,
@@ -285,6 +337,11 @@ FRESULT mp3_decoder_read_pcm(
     return FR_OK;
 }
 
+uint32_t mp3_decoder_get_sample_rate(void)
+{
+    return mp3.sample_rate;
+}
+
 
 void mp3_decoder_close(void)
 {
@@ -295,5 +352,6 @@ void mp3_decoder_close(void)
     mp3.file = NULL;
     mp3.position = 0U;
     mp3.available = 0U;
+    mp3.sample_rate = 0U;
     mp3.eof = false;
 }

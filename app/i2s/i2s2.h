@@ -17,6 +17,7 @@ uint32_t i2s_tx_underrun_count(void);
  * Инициализация вызывается один раз.
  */
 void i2s_dma_init(void);
+int i2s_set_sample_rate(uint32_t sample_rate);
 
 /*
  * Все управляющие функции вызываются из main.

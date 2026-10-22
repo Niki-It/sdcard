@@ -11,3 +11,4 @@ FRESULT mp3_decoder_read_pcm(
 );
 
 void mp3_decoder_close(void);
+uint32_t mp3_decoder_get_sample_rate(void);

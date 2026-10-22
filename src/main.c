@@ -16,7 +16,6 @@
 #include "media/audio_playback.h"
 #include "perf_counter/perf_counter.h"
 #include "i2c.h"
-#include "led_blinking.h"
 #include "stdbool.h"
 
 
@@ -97,12 +96,16 @@ static pin_debounce_t debounced_pins[DEBOUNCE_INPUT_COUNT] = {
     [DEBOUNCE_INPUT_ACHTUNG] = {
         .port = GPIOC,
         .pin = LL_GPIO_PIN_15,
-        .threshold = ACHTUNG_DEBOUNCE_THRESHOLD
+        .threshold = ACHTUNG_DEBOUNCE_THRESHOLD,
+        .raw_state = 1,
+        .state = 1
     },
     [DEBOUNCE_INPUT_TRK] = {
         .port = GPIOC,
         .pin = LL_GPIO_PIN_13,
-        .threshold = TRK_DEBOUNCE_THRESHOLD
+        .threshold = TRK_DEBOUNCE_THRESHOLD,
+        .raw_state = 1,
+        .state = 1
      }
 };
 
@@ -178,7 +181,7 @@ int main(void)
 
     mute_amplifiers();
 
-    set_leds(VD1 | VD2 | VD3, true);
+    set_leds(LED_VD1 | LED_VD2 | LED_VD3, true);
 
     while (1) 
     {
@@ -455,7 +458,7 @@ static void process_achtung_button(void)
 
     previous_state = current_state;
 
-    if (current_state != 1U) {
+    if (current_state == 0U) {
         process_state_event(APP_EVENT_ACHTUNG_ON, FR_OK);
     } else {
         process_state_event(APP_EVENT_ACHTUNG_OFF, FR_OK);

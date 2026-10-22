@@ -31,8 +31,6 @@ void debounce_init(pin_debounce_t *pins, size_t count, uint32_t period_ms)
     for (size_t i = 0; i < debounce_count; i++) {
         pin_debounce_t *pin = &debounce_pins[i];
 
-        pin->state = 0;
-        pin->raw_state = 0;
         pin->counter = 0;
 
         if (pin->threshold == 0U) {

@@ -6,7 +6,6 @@ set(SOURCES
     "app/debounce.c"
     "app/i2c.c"
     "app/i2s/i2s2.c"
-    "app/led_blinking.c"
     "app/led_controller/led_controller.c"
     "app/led_controller/led_raw/led_raw.c"
     "app/media/audio_playback.c"

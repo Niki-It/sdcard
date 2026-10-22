@@ -5,22 +5,18 @@
 #include <stdint.h>
 #include <string.h>
 
-#define WAV_SAMPLE_RATE       48000U
 #define WAV_CHANNELS          2U
 #define WAV_BITS_PER_SAMPLE   16U
 
+#define WAV_RIFF_SIZE_BYTES   8U
 #define WAV_BLOCK_ALIGN \
     (WAV_CHANNELS * (WAV_BITS_PER_SAMPLE / 8U))
-
-#define WAV_BYTE_RATE \
-    (WAV_SAMPLE_RATE * WAV_BLOCK_ALIGN)
-
-#define WAV_RIFF_SIZE_BYTES   8U
 
 static struct
 {
     FIL *file;
     uint32_t remaining;
+    uint32_t sample_rate;
 } wav;
 
 
@@ -67,10 +63,11 @@ static FRESULT read_header(FIL *file, wav_header_t *header)
     if (header->fmt_size != WAV_PCM_FMT_BYTES ||
         header->audio_format != WAV_FORMAT_PCM ||
         header->channels != WAV_CHANNELS ||
-        header->sample_rate != WAV_SAMPLE_RATE ||
+        header->sample_rate == 0U ||
         header->bits_per_sample != WAV_BITS_PER_SAMPLE ||
         header->block_align != WAV_BLOCK_ALIGN ||
-        header->byte_rate != WAV_BYTE_RATE)
+        (uint64_t)header->byte_rate !=
+            (uint64_t)header->sample_rate * WAV_BLOCK_ALIGN)
     {
         return FR_INVALID_PARAMETER;
     }
@@ -167,6 +164,7 @@ FRESULT wav_decoder_prepare(FIL *file)
 
     wav.file = file;
     wav.remaining = header.data_size;
+    wav.sample_rate = header.sample_rate;
 
     return FR_OK;
 }
@@ -243,4 +241,10 @@ void wav_decoder_close(void)
 {
     wav.file = NULL;
     wav.remaining = 0U;
+    wav.sample_rate = 0U;
+}
+
+uint32_t wav_decoder_get_sample_rate(void)
+{
+    return wav.sample_rate;
 }

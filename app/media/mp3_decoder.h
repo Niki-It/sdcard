@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio_pcm.h"
+#include "SEGGER_RTT.h"
 
 FRESULT mp3_decoder_prepare(FIL *file);
 

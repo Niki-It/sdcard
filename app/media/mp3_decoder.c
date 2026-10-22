@@ -1,5 +1,4 @@
 #include "mp3_decoder.h"
-#include "mp3dec.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -18,6 +17,7 @@ static struct
     FIL *file;
     mp3dec_t decoder;
     uint8_t input[MP3_INPUT_BYTES];
+    FSIZE_t input_offset;
     uint32_t position;
     uint32_t available;
     uint32_t sample_rate;
@@ -48,6 +48,7 @@ static FRESULT refill(void)
         mp3.input + mp3.position,
         mp3.available
     );
+    mp3.input_offset += mp3.position;
     mp3.position = 0U;
 
     UINT requested = sizeof(mp3.input) - mp3.available;
@@ -155,6 +156,7 @@ FRESULT mp3_decoder_prepare(FIL *file)
     ************************************************************/
 
     mp3.file = file;
+    mp3.input_offset = f_tell(file);
     mp3dec_init(&mp3.decoder);
 
     error = refill();
@@ -288,6 +290,16 @@ FRESULT mp3_decoder_read_pcm(
 
         mp3dec_frame_info_t info = {0};
 
+        // TODO: Проверка для дэбага
+        // SEGGER_RTT_printf(
+        //     0,
+        //     "MP3: file=%lu input=%lu decode=%lu pos=%lu available=%lu\r\n",
+        //     (unsigned long)f_tell(mp3.file),
+        //     (unsigned long)mp3.input_offset,
+        //     (unsigned long)(mp3.input_offset + mp3.position),
+        //     (unsigned long)mp3.position,
+        //     (unsigned long)mp3.available
+        // );
         int samples = mp3dec_decode_frame(
             &mp3.decoder,
             input,
@@ -295,6 +307,48 @@ FRESULT mp3_decoder_read_pcm(
             pcm,
             &info
         );
+        // TODO: Проверка для дэбага
+        // if (samples == 0 && info.hz == 0)
+        // {
+        //     SEGGER_RTT_printf(
+        //         0,
+        //         "MP3 NO FRAME: offset=%lu available=%lu frame_bytes=%d\r\n",
+        //         (unsigned long)(mp3.input_offset + mp3.position),
+        //         (unsigned long)mp3.available,
+        //         info.frame_bytes
+        //     );
+
+        //     uint32_t count = mp3.available;
+
+        //     if (count > 16U)
+        //     {
+        //         count = 16U;
+        //     }
+
+        //     for (uint32_t i = 0U; i < count; i++)
+        //     {
+        //         SEGGER_RTT_printf(
+        //             0,
+        //             "%02X ",
+        //             (unsigned int)input[i]
+        //         );
+        //     }
+
+        //     SEGGER_RTT_printf(0, "MP3 BOUNDARY:\r\n");
+
+        //     for (uint32_t i = 1037U; i < 1053U; i++)
+        //     {
+        //         SEGGER_RTT_printf(
+        //             0,
+        //             "%lu:%02X ",
+        //             (unsigned long)i,
+        //             (unsigned int)input[i]
+        //         );
+        //     }
+        //     SEGGER_RTT_printf(0, "\r\n");
+
+        //     return FR_INT_ERR;
+        // }
 
         /*
          * Ожидаем фрейм прямо в текущей позиции.
@@ -375,4 +429,5 @@ void mp3_decoder_close(void)
     mp3.available = 0U;
     mp3.sample_rate = 0U;
     mp3.eof = false;
+    mp3.input_offset = 0U;
 }

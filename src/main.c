@@ -163,6 +163,8 @@ int main(void)
         process_leds(uptime_ms);
         process_state_logic();
 
+        tud_task();
+
         if (can_send_command()) 
         {
             send_SetLedState(USART2);
@@ -396,7 +398,6 @@ static void process_state_logic(void)
 
     // Без переодического обслуживания
     case IDLE:
-        tud_task();
         break;
         
     case BYPASS:

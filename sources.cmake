@@ -21,7 +21,7 @@ set(SOURCES
     "app/storage/diskio.c"
     "app/storage/fatfs_time.c"
     "app/storage/fs.c"
-    "app/storage/tinyusb_serve.c"
+    "app/tinyusb_serve.c"
     "app/usb_descriptors.c"
     "core/syscalls.c"
     "core/sysmem.c"

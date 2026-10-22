@@ -442,6 +442,10 @@ FRESULT audio_playback_start(
     {
         sample_rate = mp3_decoder_get_sample_rate();
     }
+    if(playback.format == AUDIO_FORMAT_WAV)
+    {
+        sample_rate = wav_decoder_get_sample_rate();
+    }
 
     /*
     * Проверка в начале audio_playback_start() уже гарантирует,

@@ -7,8 +7,42 @@
 #include <sdio/sdio.h>
 
 extern sd_card_info_t card_info;
-static bool ejected = false;
 #define MSC_SECTOR_SIZE 512U
+static bool ejected = false;
+
+static bool msc_local_active = false;
+
+void msc_set_local_active(bool active)
+{
+    msc_local_active = active;
+}
+void tinyusb_unmount()
+{
+    msc_set_local_active(true);
+}
+void tinyusb_mount()
+{
+    msc_set_local_active(false);
+}
+
+static bool msc_medium_ready(uint8_t lun)
+{
+    if (msc_local_active || ejected ||
+        card_info.block_size != MSC_SECTOR_SIZE ||
+        card_info.block_count == 0U)
+    {
+        tud_msc_set_sense(
+            lun,
+            SCSI_SENSE_NOT_READY,
+            0x3A,
+            0x00
+        );
+
+        return false;
+    }
+
+    return true;
+}
 
 static bool msc_range_valid
 (
@@ -38,6 +72,11 @@ int32_t tud_msc_read10_cb(
     void *buffer,
     uint32_t bufsize)
 {
+    if (!msc_medium_ready(lun))
+    {
+        return -1;
+    }
+    
     uint8_t sector_buf[MSC_SECTOR_SIZE];
     uint8_t *dst = buffer;
     uint32_t remaining = bufsize;
@@ -117,6 +156,11 @@ int32_t tud_msc_write10_cb(
     uint8_t *buffer,
     uint32_t bufsize)
 {
+    if (!msc_medium_ready(lun))
+    {
+        return -1;
+    }
+
     uint8_t sector_buf[MSC_SECTOR_SIZE];
     const uint8_t *src = buffer;
     uint32_t remaining = bufsize;
@@ -244,7 +288,8 @@ bool tud_msc_test_unit_ready_cb(uint8_t lun)
 bool tud_msc_is_writable_cb(uint8_t lun)
 {
     (void)lun;
-    return true;
+
+    return !msc_local_active && !ejected;
 }
 
 int32_t tud_msc_scsi_cb

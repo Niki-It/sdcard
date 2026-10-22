@@ -29,7 +29,6 @@
 #include "media/audio_playback.h"
 #include "perf_counter/perf_counter.h"
 #include "i2c.h"
-#include "led_blinking.h"
 #include "stdbool.h"
 
 // Состояния

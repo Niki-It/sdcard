@@ -11,3 +11,4 @@ FRESULT wav_decoder_read_pcm(
 );
 
 void wav_decoder_close(void);
+uint32_t wav_decoder_get_sample_rate();

@@ -9,7 +9,7 @@
 #define MUTE_AMP1_PIN   LL_GPIO_PIN_8
 #define MUTE_AMP2_PIN   LL_GPIO_PIN_9
 
-#define AUDIO_FILENAME "record.wav"
+#define AUDIO_FILENAME "record.mp3"
 
 #define DEBOUNCE_PERIOD_MS          1U  // Периодичность вызова обработчика антидребезга
 #define ACHTUNG_DEBOUNCE_THRESHOLD  5U  // Количество вызовов обработчика с неизменным состоянием сигнала до его подтверждения
@@ -88,6 +88,8 @@ int main(void)
         process_button_combinations(&button_status);
         process_leds(uptime_ms);
         process_state_logic();
+
+        tud_task();
 
         if (can_send_command()) 
         {
@@ -461,7 +463,7 @@ static FRESULT start_playback(void)
     aic3104_i2s_to_hprout();
 
     FRESULT result = audio_playback_start(
-        AUDIO_FILENAME, AUDIO_FORMAT_WAV
+        AUDIO_FILENAME, AUDIO_FORMAT_MP3
     );
 
     if (result == FR_OK) {

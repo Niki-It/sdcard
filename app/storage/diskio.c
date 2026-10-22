@@ -44,6 +44,10 @@ DSTATUS disk_status(BYTE pdrv)
     return sd_disk_status;
 }
 
+#define SD_DMA_ALIGNMENT  4U
+#define SD_SECTOR_BYTES   512U
+static uint8_t sd_read_buffer[SD_SECTOR_BYTES]
+    __attribute__((aligned(SD_DMA_ALIGNMENT)));
 
 DRESULT disk_read(
     BYTE pdrv,
@@ -52,28 +56,57 @@ DRESULT disk_read(
     UINT count
 )
 {
-    if (pdrv != 0 || buff == NULL || count == 0) {
+    if (pdrv != 0 || buff == NULL || count == 0U)
+    {
         return RES_PARERR;
     }
 
-    if (sd_card == NULL || (sd_disk_status & STA_NOINIT)) {
+    if (sd_card == NULL || (sd_disk_status & STA_NOINIT))
+    {
         return RES_NOTRDY;
     }
 
     if (sector >= sd_card->block_count ||
-        count > sd_card->block_count - sector) {
+        count > sd_card->block_count - sector)
+    {
         return RES_PARERR;
     }
 
-    sd_status_t status = sd_read_blocks(
-        sd_card,
-        (uint32_t)sector,
-        buff,
-        (uint32_t)count
-    );
+    if ((uintptr_t)buff % SD_DMA_ALIGNMENT == 0U)
+    {
+        sd_status_t status = sd_read_blocks(
+            sd_card,
+            (uint32_t)sector,
+            buff,
+            (uint32_t)count
+        );
 
-    if (status != SD_OK) {
-        return RES_ERROR;
+        return status == SD_OK ? RES_OK : RES_ERROR;
+    }
+
+    /*
+     * DMA читает в выровненный буфер.
+     * В пользовательский буфер копируем обычным memcpy.
+     */
+    while (count > 0U)
+    {
+        sd_status_t status = sd_read_blocks(
+            sd_card,
+            (uint32_t)sector,
+            sd_read_buffer,
+            1U
+        );
+
+        if (status != SD_OK)
+        {
+            return RES_ERROR;
+        }
+
+        memcpy(buff, sd_read_buffer, SD_SECTOR_BYTES);
+
+        buff += SD_SECTOR_BYTES;
+        sector++;
+        count--;
     }
 
     return RES_OK;

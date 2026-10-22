@@ -4,16 +4,19 @@
 #include <stdint.h>
 #include <string.h>
 
+#define MINIMP3_ONLY_MP3
+#define MINIMP3_NO_SIMD
+#define MINIMP3_IMPLEMENTATION
+#include "minimp3.h"
+
 #define MP3_INPUT_BYTES    4096U
 #define MP3_PCM_BYTES      4608U
 #define MP3_FRAMES_PER_CALL 4U
 
-_Static_assert(sizeof(short) == 2U, "Helix requires 16-bit short");
-
 static struct
 {
     FIL *file;
-    HMP3Decoder decoder;
+    mp3dec_t decoder;
     uint8_t input[MP3_INPUT_BYTES];
     uint32_t position;
     uint32_t available;
@@ -73,25 +76,42 @@ static FRESULT refill(void)
 }
 
 
+#define MP3_ID3_HEADER_BYTES  10U
+
 FRESULT mp3_decoder_prepare(FIL *file)
 {
     mp3_decoder_close();
 
     if (file == NULL)
+    {
         return FR_INVALID_PARAMETER;
+    }
 
     FRESULT error = seek_to(file, 0U);
-    if (error != FR_OK)
-        return error;
 
-    uint8_t header[10];
+    if (error != FR_OK)
+    {
+        return error;
+    }
+
+    /************************************************************
+     * ПРОПУСК ПОЛНОГО ТЕГА ID3 ПЕРЕД ПЕРВЫМ MP3-ФРЕЙМОМ
+     ************************************************************/
+
+    uint8_t header[MP3_ID3_HEADER_BYTES];
     UINT received = 0U;
 
     error = f_read(file, header, sizeof(header), &received);
+
     if (error != FR_OK)
+    {
         return error;
+    }
+
     if (received != sizeof(header))
+    {
         return FR_INT_ERR;
+    }
 
     FSIZE_t offset = 0U;
 
@@ -100,7 +120,7 @@ FRESULT mp3_decoder_prepare(FIL *file)
         if (header[3] < 2U || header[3] > 4U ||
             header[4] == 0xFFU ||
             ((header[6] | header[7] |
-              header[8] | header[9]) & 0x80U))
+              header[8] | header[9]) & 0x80U) != 0U)
         {
             return FR_INVALID_PARAMETER;
         }
@@ -111,79 +131,90 @@ FRESULT mp3_decoder_prepare(FIL *file)
             ((uint32_t)header[8] << 7) |
             header[9];
 
-        offset = 10U + size;
+        offset = (FSIZE_t)MP3_ID3_HEADER_BYTES + size;
 
-        /* У ID3v2.4 может быть дополнительный footer. */
-        if (header[3] == 4U && (header[5] & 0x10U))
-            offset += 10U;
+        /* ID3v2.4 может содержать дополнительный footer. */
+        if (header[3] == 4U && (header[5] & 0x10U) != 0U)
+        {
+            offset += MP3_ID3_HEADER_BYTES;
+        }
     }
 
+    /*
+     * Если ID3 отсутствует, возвращаемся к началу файла.
+     * Если присутствует — переходим за весь тег.
+     */
     error = seek_to(file, offset);
     if (error != FR_OK)
+    {
         return error;
+    }
 
-    mp3.decoder = MP3InitDecoder();
-    if (mp3.decoder == NULL)
-        return FR_NOT_ENOUGH_CORE; 
+    /************************************************************
+     * КОНЕЦ ПРОПУСКА ПОЛНОГО ТЕГА ID3 ПЕРЕД ПЕРВЫМ MP3-ФРЕЙМОМ
+    ************************************************************/
 
     mp3.file = file;
+    mp3dec_init(&mp3.decoder);
 
     error = refill();
+
     if (error != FR_OK)
     {
         mp3_decoder_close();
         return error;
     }
 
-    if (mp3.available < 6U)
+    mp3dec_frame_info_t info = {0};
+
+    int samples = mp3dec_decode_frame(
+        &mp3.decoder,
+        mp3.input + mp3.position,
+        (int)mp3.available,
+        NULL,
+        &info
+    );
+
+    /*
+     * При pcm == NULL положительный результат означает,
+     * что найден полный фрейм и определены его параметры.
+     */
+    if (samples <= 0)
     {
         mp3_decoder_close();
         return FR_INT_ERR;
     }
 
-    MP3FrameInfo info;
-
-    if (MP3FindSyncWord(mp3.input, 2) != 0 ||
-        MP3GetNextFrameInfo(mp3.decoder, &info, mp3.input) != 0)
-    {
-        mp3_decoder_close();
-        return FR_INT_ERR;
-    }
-
-    if (info.version != MPEG1 ||
-        info.layer != 3 ||
-        info.bitsPerSample != 16 ||
-        (info.nChans != 1 && info.nChans != 2) ||
-        info.outputSamps != 1152 * info.nChans ||
-        (info.samprate != 32000 &&
-        info.samprate != 44100 &&
-        info.samprate != 48000) ||
-        info.bitrate <= 0)
+    if (info.layer != 3 ||
+        (info.channels != 1 && info.channels != 2) ||
+        info.hz <= 0)
     {
         mp3_decoder_close();
         return FR_INVALID_PARAMETER;
     }
 
-    uint32_t frame_bytes =
-        144U * (uint32_t)info.bitrate /
-        (uint32_t)info.samprate +
-        ((mp3.input[2] >> 1) & 1U);
-
-    if (frame_bytes > mp3.available)
-    {
-        mp3_decoder_close();
-        return FR_INT_ERR;
-    }
-
-    mp3.sample_rate = (uint32_t)info.samprate;
+    /*
+     * Пропускаем только байты перед фреймом.
+     * Сам первый фрейм остаётся во входном буфере.
+     */
+    mp3.position += (uint32_t)info.frame_offset;
+    mp3.available -= (uint32_t)info.frame_offset;
+    mp3.sample_rate = (uint32_t)info.hz;
 
     /*
-    * Первый кадр остаётся в input.
-    * read_pcm() декодирует его обычным порядком.
-    */
+     * Просмотр заголовка не заполняет bit reservoir.
+     * Реальное декодирование начнём с первого фрейма.
+     */
+    mp3dec_init(&mp3.decoder);
+
     return FR_OK;
 }
 
+
+_Static_assert(
+    sizeof(mp3d_sample_t) == 2U,
+    "MP3 decoder requires signed 16-bit PCM"
+);
 
 FRESULT mp3_decoder_read_pcm(
     uint8_t *destination,
@@ -192,13 +223,17 @@ FRESULT mp3_decoder_read_pcm(
 )
 {
     if (result == NULL)
+    {
         return FR_INVALID_PARAMETER;
+    }
 
     result->bytes = 0U;
     result->end = false;
 
-    if (mp3.decoder == NULL)
+    if (mp3.file == NULL)
+    {
         return FR_NOT_READY;
+    }
 
     if (mp3.eof && mp3.available == 0U)
     {
@@ -207,133 +242,121 @@ FRESULT mp3_decoder_read_pcm(
     }
 
     if (destination == NULL ||
-        ((uintptr_t)destination % _Alignof(short)) != 0U ||
-        capacity < MP3_PCM_BYTES)
+        ((uintptr_t)destination % _Alignof(mp3d_sample_t)) != 0U ||
+        capacity < MP3_PCM_BYTES ||
+        capacity % 4U != 0U)
     {
         return FR_INVALID_PARAMETER;
     }
 
-    FRESULT error = refill();
-    if (error != FR_OK)
-        return error;
-
     for (uint32_t frame = 0U; frame < MP3_FRAMES_PER_CALL; frame++)
     {
+        // недостаточно место для еще одного раскодировано кадра mp3
+        if (capacity - result->bytes < MP3_PCM_BYTES)
+        {
+            break;
+        }
+
+        FRESULT error = refill();
+
+        if (error != FR_OK)
+        {
+            return error;
+        }
+
+        // указываем на первый необработанный байт в input
         uint8_t *input = mp3.input + mp3.position;
 
-        /* ID3v1 занимает последние 128 байт файла. */
-        if (mp3.eof && mp3.available == 128U &&
-            memcmp(input, "TAG", 3U) == 0)
+        /*
+         * Убираем конечный ID3v1 из доступных данных,
+         * чтобы minimp3 видел конец аудиопотока без тега.
+         */
+        if (mp3.eof && mp3.available >= 128U &&
+            memcmp(input + mp3.available - 128U, "TAG", 3U) == 0)
         {
-            mp3.available = 0U;
+            mp3.available -= 128U;
         }
 
         if (mp3.available == 0U)
-            break;
-
-        if (capacity - result->bytes < MP3_PCM_BYTES)
-            break;
-
-        /* Заголовок плюс возможные два байта CRC. */
-        if (mp3.available < 6U)
         {
-            if (mp3.eof)
-                return FR_INT_ERR;
             break;
         }
 
-        MP3FrameInfo info;
+        // определяем адрес записи следующего PCM
+        mp3d_sample_t *pcm =
+            (mp3d_sample_t *)(destination + result->bytes);
 
-        
-        if (MP3FindSyncWord(input, 2) != 0 ||
-            MP3GetNextFrameInfo(mp3.decoder, &info, input) != 0)
-        {
-            return FR_INT_ERR;
-        }
+        mp3dec_frame_info_t info = {0};
 
-                if (info.version != MPEG1 || info.layer != 3 ||
-            info.bitsPerSample != 16 ||
-            (info.nChans != 1 && info.nChans != 2) ||
-            info.outputSamps != 1152 * info.nChans)
-        {
-            return FR_INVALID_PARAMETER;
-        }
-
-        if ((uint32_t)info.samprate != mp3.sample_rate)
-        {
-            return FR_INVALID_PARAMETER;
-        }
-
-        /*
-         * Для free-format bitrate нельзя определить
-         * размер кадра этой формулой.
-         */
-        if (info.bitrate <= 0)
-        {
-            return FR_INVALID_PARAMETER;
-        }
-
-        uint32_t frame_bytes =
-            144U * (uint32_t)info.bitrate /
-            (uint32_t)info.samprate +
-            ((input[2] >> 1) & 1U);
-
-        if (frame_bytes > MP3_INPUT_BYTES)
-        {
-            return FR_INVALID_PARAMETER;
-        }
-
-        /* Helix получает только полностью загруженный кадр. */
-        if (mp3.available < frame_bytes)
-        {
-            if (mp3.eof)
-                return FR_INT_ERR;
-            break;
-        }
-
-        short *pcm = (short *)(destination + result->bytes);
-        const unsigned char *next = input;
-        size_t remaining = (size_t)frame_bytes;
-
-        int status = MP3Decode(
-            mp3.decoder,
-            &next,
-            &remaining,
+        int samples = mp3dec_decode_frame(
+            &mp3.decoder,
+            input,
+            (int)mp3.available,
             pcm,
-            0
+            &info
         );
 
-        if (status != ERR_MP3_NONE &&
-            status != ERR_MP3_MAINDATA_UNDERFLOW)
+        /*
+         * Ожидаем фрейм прямо в текущей позиции.
+         * Автоматическое восстановление после повреждения
+         * потока здесь пока не реализуем.
+         */
+        if (info.frame_bytes <= 0 ||
+            (uint32_t)info.frame_bytes > mp3.available ||
+            info.frame_offset != 0)
         {
             return FR_INT_ERR;
         }
 
-        if (remaining != 0 || next != input + frame_bytes)
-            return FR_INT_ERR;
-
-        mp3.position += frame_bytes;
-        mp3.available -= frame_bytes;
-
-        /* Кадр пополнил bit reservoir, но PCM ещё не получен. */
-        if (status == ERR_MP3_MAINDATA_UNDERFLOW)
-            continue;
-
-        if (info.nChans == 1)
+        // Layer 3 подходим под 44.1 32 48 kHZ
+        if (info.layer != 3 ||
+            (info.channels != 1 && info.channels != 2) ||
+            info.hz <= 0 ||
+            (uint32_t)info.hz != mp3.sample_rate)
         {
-            /* Расширяем с конца, чтобы не затереть исходное моно. */
-            for (int i = 1151; i >= 0; i--)
+            return FR_INVALID_PARAMETER;
+        }
+
+        if (samples < 0 ||
+            samples > MINIMP3_MAX_SAMPLES_PER_FRAME / 2)
+        {
+            return FR_INT_ERR;
+        }
+
+        mp3.position += (uint32_t)info.frame_bytes;
+        mp3.available -= (uint32_t)info.frame_bytes;
+
+        /*
+         * Фрейм мог пополнить bit reservoir без выдачи PCM.
+         * Состояние декодера сохраняем.
+         */
+        if (samples == 0)
+        {
+            continue;
+        }
+
+        if (info.channels == 1)
+        {
+            /* Расширяем mono в stereo с конца массива. */
+            for (int i = samples - 1; i >= 0; i--)
             {
-                short sample = pcm[i];
+                mp3d_sample_t sample = pcm[i];
+
                 pcm[2 * i] = sample;
                 pcm[2 * i + 1] = sample;
             }
         }
 
-        result->bytes += MP3_PCM_BYTES;
+        /*
+         * samples — число сэмплов на канал.
+         * Выход всегда stereo PCM16: четыре байта на пару.
+         */
+        result->bytes +=
+            (uint32_t)samples * 2U * sizeof(mp3d_sample_t);
     }
 
     result->end = mp3.eof && mp3.available == 0U;
+
     return FR_OK;
 }
 
@@ -345,10 +368,8 @@ uint32_t mp3_decoder_get_sample_rate(void)
 
 void mp3_decoder_close(void)
 {
-    if (mp3.decoder != NULL)
-        MP3FreeDecoder(mp3.decoder);
+    memset(&mp3.decoder, 0, sizeof(mp3.decoder));
 
-    mp3.decoder = NULL;
     mp3.file = NULL;
     mp3.position = 0U;
     mp3.available = 0U;

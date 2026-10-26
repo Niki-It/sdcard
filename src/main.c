@@ -61,6 +61,7 @@ static app_state_t state = IDLE;
  * ========================================================================== */
 int main(void)
 {
+    setvbuf(stdout, NULL, _IONBF, 0);
     periph_init();
     fs_unit(true);
     tusb_init();
@@ -88,8 +89,12 @@ int main(void)
         process_button_combinations(&button_status);
         process_leds(uptime_ms);
         process_state_logic();
+        process_usb(state == IDLE, uptime_ms);
 
-        tud_task();
+        if (state == IDLE)
+        {
+            tud_task();
+        }
 
         if (can_send_command()) 
         {
@@ -157,11 +162,16 @@ static void process_state_event(app_event_t event, FRESULT error)
 {
     /* Включение ACHTUNG разрешено из любого обычного режима. */
     if (event == APP_EVENT_ACHTUNG_ON) {
-        if (state != ACHTUNG) {
+        if (state != ACHTUNG) 
+        {
+            if (!usb_stop(uptime_ms))
+            {
+                return;
+            }
             interrupt_mode(state);
 
             state = ACHTUNG;
-            SEGGER_RTT_printf(0, "ACHTUNG started\r\n");
+            printf("ACHTUNG started\n");
         }
 
         return;
@@ -171,7 +181,7 @@ static void process_state_event(app_event_t event, FRESULT error)
     if (state == ACHTUNG) {
         if (event == APP_EVENT_ACHTUNG_OFF) {
             state = IDLE;
-            SEGGER_RTT_printf(0, "ACHTUNG finished\r\n");
+            printf("ACHTUNG finished\n");
         }
 
         return;
@@ -180,6 +190,23 @@ static void process_state_event(app_event_t event, FRESULT error)
     /* Общие команды не изменяют состояние. */
     if (process_common_event(event)) {
         return;
+    }
+    
+    if (state == IDLE)
+    {
+        const bool starts_mode =
+            event == APP_EVENT_RECORD_START ||
+            event == APP_EVENT_PLAY_REQUEST ||
+            event == APP_EVENT_TRK_PRESSED ||
+            event == APP_EVENT_BYPASS_START;
+
+        if (starts_mode)
+        {
+            if (!usb_stop(uptime_ms))
+            {
+                return;
+            }
+        }
     }
 
     /* Переходы обычных режимов. */
@@ -252,7 +279,8 @@ static void process_state_event(app_event_t event, FRESULT error)
 /* Возвращает 1, если событие обработано, иначе 0. */
 static int process_common_event(app_event_t event)
 {
-    switch (event) {
+    switch (event) 
+    {
     case APP_EVENT_VOLUME_UP:
         aic3104_volume_up();
 
@@ -268,7 +296,7 @@ static int process_common_event(app_event_t event)
             request_blinking(VD7, 2, 200);
         }
 
-        SEGGER_RTT_printf(0, "+\r\n");
+        printf("+\n");
         return 1;
 
     case APP_EVENT_VOLUME_DOWN:
@@ -286,7 +314,7 @@ static int process_common_event(app_event_t event)
             request_blinking(VD8, 2, 200);
         }
 
-        SEGGER_RTT_printf(0, "-\r\n");
+        printf("-\n");
         return 1;
 
     default:
@@ -411,11 +439,9 @@ static FRESULT start_recording(void)
     FRESULT result = wav_recording_start(AUDIO_FILENAME);
 
     if (result == FR_OK) {
-        SEGGER_RTT_printf(0, "WAV recording started\r\n");
+        printf("WAV recording started\n");
     } else {
-        SEGGER_RTT_printf(
-            0, "WAV recording start error: %d\r\n", (int)result
-        );
+        printf("WAV recording start error: %d\n", (int)result);
     }
 
     return result;
@@ -429,22 +455,18 @@ static void stop_recording(app_event_t reason, FRESULT error)
 
     switch (reason) {
     case APP_EVENT_RECORDING_ERROR:
-        SEGGER_RTT_printf(
-            0, "WAV write error: %d, end: %d\r\n",
+        printf(
+            "WAV write error: %d, end: %d\n",
             (int)error, (int)result
         );
         break;
 
     case APP_EVENT_ACHTUNG_ON:
-        SEGGER_RTT_printf(
-            0, "WAV recording interrupted: %d\r\n", (int)result
-        );
+        printf("WAV recording interrupted: %d\n", (int)result);
         break;
 
     default:
-        SEGGER_RTT_printf(
-            0, "WAV recording finished: %d\r\n", (int)result
-        );
+        printf( "WAV recording finished: %d\n", (int)result);
         break;
     }
 }
@@ -468,11 +490,9 @@ static FRESULT start_playback(void)
 
     if (result == FR_OK) {
         unmute_amplifiers();
-        SEGGER_RTT_printf(0, "WAV playback started\r\n");
+        printf("WAV playback started\n");
     } else {
-        SEGGER_RTT_printf(
-            0, "WAV playback start error: %d\r\n", (int)result
-        );
+        printf("WAV playback start error: %d\n", (int)result);
     }
 
     return result;
@@ -487,11 +507,9 @@ static void finish_playback(app_event_t reason, FRESULT error)
     mute_amplifiers();
 
     if (reason == APP_EVENT_PLAYBACK_ERROR) {
-        SEGGER_RTT_printf(
-            0, "WAV playback error: %d\r\n", (int)error
-        );
+        printf("WAV playback error: %d\n", (int)error);
     } else {
-        SEGGER_RTT_printf(0, "WAV playback finished\r\n");
+        printf("WAV playback finished\n");
     }
 }
 
@@ -510,14 +528,14 @@ static void start_bypass(void)
 
     unmute_amplifiers();
 
-    SEGGER_RTT_printf(0, "Bypass started\r\n");
+    printf("Bypass started\n");
 }
 
 static void stop_bypass(void)
 {
     mute_amplifiers();
 
-    SEGGER_RTT_printf(0, "Bypass finished\r\n");
+    printf("Bypass finished\n");
 }
 
 static void start_trk(void)
@@ -527,7 +545,7 @@ static void start_trk(void)
 
     LL_GPIO_SetOutputPin(GPIOB, LL_GPIO_PIN_7);
 
-    SEGGER_RTT_printf(0, "TRK started\r\n");
+    printf("TRK started\n");
     state = TRK;
 }
 
@@ -538,7 +556,7 @@ static void stop_trk(void)
     LL_GPIO_ResetOutputPin(GPIOB, LL_GPIO_PIN_7);
     mux_select(2, MUX_CHANNEL_X1);
 
-    SEGGER_RTT_printf(0, "TRK finished\r\n");
+    printf("TRK finished\n");
     state = IDLE;
 }
 
@@ -597,7 +615,7 @@ void periph_init(void)
     sd_status_t status = sd_init(&card_info);
 
     if (status != SD_OK) {
-        SEGGER_RTT_printf(0, "SD init error: %d\r\n", status);
+        printf("SD init error: %d\n", status);
         return;
     }
 

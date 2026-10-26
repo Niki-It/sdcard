@@ -2,6 +2,18 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "Generate Sources",
+            "type": "process",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/scripts/gen_sources.py"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "CMake Configure",
             "type": "cmake",
             "command": "configure",
@@ -17,8 +29,11 @@
                 "isDefault": true
             },
             "problemMatcher": [],
-            "dependsOn": "CMake Configure"
-        },
-                    
+            "dependsOn": [
+                "Generate Sources",
+                "CMake Configure"
+            ],
+            "dependsOrder": "sequence"
+        }
     ]
 }

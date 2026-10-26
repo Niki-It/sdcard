@@ -30,6 +30,9 @@
 #include "perf_counter/perf_counter.h"
 #include "i2c.h"
 #include "stdbool.h"
+#include "stdio.h"
+#include "memory.h"
+#include "storage/tinyusb_serve.h"
 
 // Состояния
 typedef enum {
@@ -112,3 +115,4 @@ static void process_state_logic(void);
 
 /* Проверка события отдельной кнопки в комбинации. */
 static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event);
+

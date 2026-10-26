@@ -1,7 +1,9 @@
+#include "tinyusb_serve.h"
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "SEGGER_RTT.h"
+#include "stdio.h"
 
 #include "tusb.h"
 #include <sdio/sdio.h>
@@ -282,12 +284,64 @@ bool tud_msc_start_stop_cb
     return true;
 }
 
-void tud_mount_cb(void)
+#define APP_USB_RHPORT             0U
+#define APP_USB_RECONNECT_DELAY_MS 200U
+
+static uint32_t usb_stopped_ms = 0;
+static bool usb_fault = false;
+
+bool usb_stop(uint32_t now_ms)
 {
-    ejected = false;
+    if (usb_fault)
+    {
+        return false;
+    }
+
+    if (!tud_inited())
+    {
+        return true;
+    }
+
+    if (!tud_deinit(APP_USB_RHPORT))
+    {
+        usb_fault = true;
+        printf("USB deinit failed\n");
+        return false;
+    }
+
+    usb_stopped_ms = now_ms;
+
+    return true;
 }
 
-void tud_umount_cb(void)
+void process_usb(bool idle, uint32_t now_ms)
 {
-    // ничего
+    if (!idle || usb_fault)
+    {
+        return;
+    }
+
+    if (!tud_inited())
+    {
+        if ((uint32_t)(now_ms - usb_stopped_ms) <
+            APP_USB_RECONNECT_DELAY_MS)
+        {
+            return;
+        }
+
+        const tusb_rhport_init_t config =
+        {
+            .role = TUSB_ROLE_DEVICE,
+            .speed = TUSB_SPEED_FULL
+        };
+
+        if (!tud_rhport_init(APP_USB_RHPORT, &config))
+        {
+            usb_fault = true;
+            printf("USB init failed\n");
+            return;
+        }
+    }
+
+    tud_task();
 }

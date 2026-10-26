@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define I2S_AUDIO_BLOCK_BYTES   4608U
-#define I2S_AUDIO_BLOCK_COUNT   16U
+#define I2S_AUDIO_BLOCK_COUNT   12U
 #define AUDIO_LOSS_STATS       0
 
 #if AUDIO_LOSS_STATS

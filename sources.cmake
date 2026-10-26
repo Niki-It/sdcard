@@ -12,6 +12,7 @@ set(SOURCES
     "app/media/mp3_decoder.c"
     "app/media/wav_decoder.c"
     "app/media/wav_encoder.c"
+    "app/memory_print/memory_print.c"
     "app/mux.c"
     "app/perf_counter/perf_counter.c"
     "app/sdio/sdio.c"

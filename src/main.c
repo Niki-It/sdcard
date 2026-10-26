@@ -74,7 +74,7 @@ int main(void)
 
     mute_amplifiers();
 
-    set_leds(LED_VD1 | LED_VD2 | LED_VD3, true);
+    set_leds(LED_VD1 | LED_VD2 | LED_VD3 | LED_VD4, true);
 
     while (1) 
     {
@@ -122,6 +122,13 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
     if (state == RECORDING &&
         combo_has(buttons_mask, events, 0, NO_EVENT)) {
         process_state_event(APP_EVENT_RECORD_STOP, FR_OK);
+        return;
+    }
+
+    if (state == PLAYING &&
+        combo_has(buttons_mask, events, 3U, SHORT_EVENT))
+    {
+        process_state_event(APP_EVENT_PLAYBACK_STOP, FR_OK);
         return;
     }
 
@@ -248,6 +255,11 @@ static void process_state_event(app_event_t event, FRESULT error)
         break;
 
     case PLAYING:
+        if (event == APP_EVENT_PLAYBACK_STOP)
+        {
+            app_playback_abort();
+            state = IDLE;
+        }
         if (event == APP_EVENT_PLAYBACK_FINISHED ||
             event == APP_EVENT_PLAYBACK_ERROR) {
             finish_playback(event, error);
@@ -640,8 +652,19 @@ void SysTick_Handler(void)
     }
 }
 
-// TODO
-static void app_playback_abort()
+static void app_playback_abort(void)
 {
+    mute_amplifiers();
 
+    FRESULT result = audio_playback_stop();
+
+    if (result != FR_OK)
+    {
+        printf("Playback stop error: %d\n", (int)result);
+    }
+    else
+    {
+        printf("Playback stopped\n");
+    }
 }
+

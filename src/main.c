@@ -353,8 +353,11 @@ static int process_common_event(app_event_t event)
 static void process_state_logic(void)
 {
     switch (state) {
-    case PLAYING: {
+    case PLAYING: 
+    {
+        perf_log_start();
         FRESULT result = audio_playback_task();
+        perf_log_finish();
 
         if (result != FR_OK) {
             process_state_event(APP_EVENT_PLAYBACK_ERROR, result);
@@ -510,6 +513,7 @@ static FRESULT start_playback(void)
     FRESULT result;
     if(format == PLAYBACK_MP3)
     {
+        perf_log_init(PERF_LOG_MAX);
         result = audio_playback_start(
             "record.mp3", AUDIO_FORMAT_MP3
         );
@@ -689,4 +693,3 @@ static void app_playback_abort(void)
         printf("Playback stopped\n");
     }
 }
-

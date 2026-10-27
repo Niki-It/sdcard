@@ -1,5 +1,8 @@
 #include "memory_print.h"
+#include "SEGGER_RTT.h"
 
+
+#ifdef MEMORY_LOG
 static volatile char log_buffer[LOG_BUFFER_SIZE];
 const char *log_lines[LOG_MAX_LINES];
 
@@ -59,3 +62,18 @@ int _write(int file, char *ptr, int len)
 
     return len;
 }
+#endif
+
+#ifdef SEGGER_LOG
+int _write(int file, char *ptr, int len)
+{
+    (void)file;
+
+    if (ptr == NULL || len <= 0)
+    {
+        return 0;
+    }
+
+    return (int)SEGGER_RTT_Write(0, ptr, (unsigned)len);
+}
+#endif

@@ -9,8 +9,6 @@
 #define MUTE_AMP1_PIN   LL_GPIO_PIN_8
 #define MUTE_AMP2_PIN   LL_GPIO_PIN_9
 
-#define AUDIO_FILENAME "record.mp3"
-
 #define DEBOUNCE_PERIOD_MS          1U  // Периодичность вызова обработчика антидребезга
 #define ACHTUNG_DEBOUNCE_THRESHOLD  5U  // Количество вызовов обработчика с неизменным состоянием сигнала до его подтверждения
 #define TRK_DEBOUNCE_THRESHOLD      15U
@@ -33,6 +31,9 @@ uint32_t tick_counter = 1;
 uint32_t message_counter = 0;
 uint32_t send_counter = 0;
 
+#define PLAYBACK_WAV 0
+#define PLAYBACK_MP3 1
+static uint32_t format = 0;
 
 sd_card_info_t card_info;
 
@@ -74,7 +75,7 @@ int main(void)
 
     mute_amplifiers();
 
-    set_leds(LED_VD1 | LED_VD2 | LED_VD3 | LED_VD4, true);
+    set_leds(LED_VD1 | LED_VD2 | LED_VD3 | LED_VD4 | LED_VD5, true);
 
     while (1) 
     {
@@ -144,9 +145,19 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
      */
     if (combo_has(buttons_mask, events, 0, LONG_EVENT)) {
         process_state_event(APP_EVENT_RECORD_START, FR_OK);
-    } else if (combo_has(buttons_mask, events, 1, SHORT_EVENT)) {
+    } else if (combo_has(buttons_mask, events, 1, SHORT_EVENT)) 
+    {
+        format = PLAYBACK_WAV;
         process_state_event(APP_EVENT_PLAY_REQUEST, FR_OK);
-    } else if (combo_has(buttons_mask, events, 2, LONG_EVENT)) {
+        return;
+    } 
+    else if(combo_has(buttons_mask, events, 4, SHORT_EVENT))
+    {
+        format = PLAYBACK_MP3;
+        process_state_event(APP_EVENT_PLAY_REQUEST, FR_OK);
+        return;
+    }
+    else if (combo_has(buttons_mask, events, 2, LONG_EVENT)) {
         process_state_event(APP_EVENT_BYPASS_START, FR_OK);
     }
 
@@ -448,7 +459,7 @@ static FRESULT start_recording(void)
     aic3104_init_clocking();
     aic3104_line1lp_to_i2s();
 
-    FRESULT result = wav_recording_start(AUDIO_FILENAME);
+    FRESULT result = wav_recording_start("record.wav");
 
     if (result == FR_OK) {
         printf("WAV recording started\n");
@@ -496,9 +507,20 @@ static FRESULT start_playback(void)
     aic3104_init_clocking();
     aic3104_i2s_to_hprout();
 
-    FRESULT result = audio_playback_start(
-        AUDIO_FILENAME, AUDIO_FORMAT_MP3
-    );
+    FRESULT result;
+    if(format == PLAYBACK_MP3)
+    {
+        result = audio_playback_start(
+            "record.mp3", AUDIO_FORMAT_MP3
+        );
+    }
+    else if(format == PLAYBACK_WAV)
+    {
+        result = audio_playback_start(
+            "record.wav", AUDIO_FORMAT_WAV
+        );
+    }
+    
 
     if (result == FR_OK) {
         unmute_amplifiers();

@@ -13,6 +13,8 @@
 #define ACHTUNG_DEBOUNCE_THRESHOLD  5U  // Количество вызовов обработчика с неизменным состоянием сигнала до его подтверждения
 #define TRK_DEBOUNCE_THRESHOLD      15U
 
+#define BUTTON_COMBO_TIMEOUT_MS 500U
+
 /* ============================================================================
  * Типы данных
  * ========================================================================== */
@@ -63,6 +65,7 @@ static app_state_t state = IDLE;
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
+    button_combo_init(BUTTON_COMBO_TIMEOUT_MS);
     periph_init();
     fs_unit(true);
     tusb_init();
@@ -85,21 +88,17 @@ int main(void)
         process_achtung_button();
         process_trk_button();
         
+        led_controller_process(uptime_ms);
         ButtonStatus button_status = poll_button_events();
 
-        process_button_combinations(&button_status);
-        process_leds(uptime_ms);
+        process_button_combinations(&button_status, uptime_ms);
+        blinking_process(uptime_ms);
         process_state_logic();
         process_usb(state == IDLE, uptime_ms);
 
         if (state == IDLE)
         {
             tud_task();
-        }
-
-        if (can_send_command()) 
-        {
-            send_SetLedState(USART2);
         }
     }
 }

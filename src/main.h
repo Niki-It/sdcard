@@ -19,7 +19,7 @@
 #include "tusb.h"
 #include "sdio/sdio.h"
 #include "led_controller/led_controller.h"
-#include "led_controller/led_raw/led_raw.h"
+#include "led_controller/led_raw.h"
 #include "button_combo.h"
 #include "storage/fs.h"
 #include "../lib/Helix/src/pub/mp3dec.h"

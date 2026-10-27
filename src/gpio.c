@@ -4,7 +4,7 @@
 
 #include "aic3104.h"
 #include "mux.h"
-#include "led_controller/led_raw/led_raw.h"
+#include "led_controller/led_raw.h"
 
 #define CODEC_I2C_PORT       GPIOB
 #define CODEC_I2C_SCL_PIN    LL_GPIO_PIN_10

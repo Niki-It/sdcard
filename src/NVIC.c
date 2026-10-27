@@ -2,7 +2,7 @@
 #include "NVIC.h"
 #include "tusb.h"
 #include "led_controller/led_controller.h"
-#include "led_controller/led_raw/led_raw.h"
+#include "led_controller/led_raw.h"
 #include "stm32f4xx_ll_tim.h"
 
 void NVIC_Init(void){

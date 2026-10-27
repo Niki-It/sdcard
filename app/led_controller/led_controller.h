@@ -91,7 +91,7 @@ typedef enum {
 } blinking_led_t;
 
 /* count полных циклов (2 * count переключений).
- * Первое переключение немедленное; таймер запускается первым process_leds.
+ * Первое переключение немедленное; таймер запускается первым blinking_process.
  * period_ms — интервал между переключениями; 0 заменяется на 1 мс.
  * count == 0 отменяет мигание, сохраняя текущее состояние.
  * Новый запрос заменяет предыдущий, начиная с текущего состояния LED.
@@ -102,7 +102,8 @@ void request_blinking(blinking_led_t led, uint16_t count, uint32_t period_ms);
  * Не более одного переключения на LED за вызов; пропущенные интервалы
  * не догоняются. Переполнение счётчика поддерживается (пауза < 2^32 мс).
  */
-void process_leds(uint32_t current_tick);
+void blinking_process(uint32_t current_tick);
+void led_controller_process(uint32_t uptime_ms);
 
 /* Управление состоянием и миганием — только из одного основного контекста.
  * set_leds отменяет мигание выбранных LED, set_all_leds — всех LED.

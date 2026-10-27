@@ -1,7 +1,7 @@
 #include "led_controller.h"
 
 #include "customcrc8/new_crc8.h"
-#include "led_raw/led_raw.h"
+#include "led_raw.h"
 
 typedef struct {
     uint32_t toggles_left;
@@ -9,6 +9,18 @@ typedef struct {
     uint32_t last_tick;
     bool timer_started;
 } BlinkState;
+
+#define LED_RESPONSE_TIMEOUT_MS 100U
+
+typedef enum
+{
+    LED_EXCHANGE_IDLE,
+    LED_EXCHANGE_WAIT_RESPONSE,
+    LED_EXCHANGE_EVENTS_PENDING
+} led_exchange_state_t;
+
+static led_exchange_state_t exchange_state = LED_EXCHANGE_IDLE;
+static uint32_t request_tick = 0U;
 
 /* Единственный источник состояния всех девяти светодиодов. */
 static uint16_t led_state;
@@ -69,7 +81,7 @@ void request_blinking(blinking_led_t led, uint16_t count, uint32_t period_ms)
     }
 }
 
-void process_leds(uint32_t current_tick)
+void blinking_process(uint32_t current_tick)
 {
     for (unsigned i = 0; i < LED_BLINKING_COUNT; ++i) {
         BlinkState *item = &blinking[i];
@@ -107,18 +119,25 @@ void send_SetLedState(USART_TypeDef *USARTx)
 ButtonStatus poll_button_events(void)
 {
     ButtonStatus status = {0};
-    if (is_response_ready) {
-        status.ready = 1U;
-        status.VD1 = button_events.VD1;
-        status.VD2 = button_events.VD2;
-        status.VD3 = button_events.VD3;
-        status.VD4 = button_events.VD4;
-        status.VD5 = button_events.VD5;
-        status.VD6 = button_events.VD6;
-        status.VD7 = button_events.VD7;
-        status.VD8 = button_events.VD8;
-        is_response_ready = 0U;
+
+    if (exchange_state != LED_EXCHANGE_EVENTS_PENDING)
+    {
+        return status;
     }
+
+    status.ready = 1U;
+    status.VD1 = button_events.VD1;
+    status.VD2 = button_events.VD2;
+    status.VD3 = button_events.VD3;
+    status.VD4 = button_events.VD4;
+    status.VD5 = button_events.VD5;
+    status.VD6 = button_events.VD6;
+    status.VD7 = button_events.VD7;
+    status.VD8 = button_events.VD8;
+
+    inc_frame_number();
+    exchange_state = LED_EXCHANGE_IDLE;
+
     return status;
 }
 
@@ -160,4 +179,48 @@ void tim6_handler(void)
 /* Необязательный пользовательский hook. Мигание больше от него не зависит. */
 __attribute__((weak)) void tim6_callback(void)
 {
+}
+
+
+
+void led_controller_process(uint32_t current_tick)
+{
+    RawResponce response;
+
+    if (exchange_state == LED_EXCHANGE_EVENTS_PENDING)
+    {
+        return;
+    }
+
+    if (exchange_state == LED_EXCHANGE_WAIT_RESPONSE)
+    {
+        /* Сначала забираем ответ, даже если main долго был занят. */
+        if (led_raw_take_response(&response))
+        {
+            write_events(response);
+            exchange_state = LED_EXCHANGE_EVENTS_PENDING;
+
+            return;
+        }
+
+        if ((uint32_t)(current_tick - request_tick) <
+            LED_RESPONSE_TIMEOUT_MS)
+        {
+            return;
+        }
+
+        /* Ответ не получен. Номер кадра оставляем прежним. */
+        led_raw_cancel_response();
+        exchange_state = LED_EXCHANGE_IDLE;
+    }
+
+    if (!can_send_command())
+    {
+        return;
+    }
+
+    request_tick = current_tick;
+    exchange_state = LED_EXCHANGE_WAIT_RESPONSE;
+
+    send_SetLedState(USART2);
 }

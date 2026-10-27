@@ -17,6 +17,7 @@ extern ring_t audio_ring;
     ((UINT32_MAX - 44U) / WAV_BLOCK_ALIGN * WAV_BLOCK_ALIGN)
 
 #define WRITE_TIME_LOG_COUNT 2048U
+#define WAV_SAMPLE_RATE 48000U
 
 static FIL wav_file;
 static bool file_open;
@@ -242,7 +243,7 @@ static FRESULT write_block(void)
 
 FRESULT wav_recording_start(const TCHAR *filename)
 {
-    if (file_open)
+    if (file_open || i2s_is_busy())
     {
         return FR_DENIED;
     }
@@ -297,9 +298,9 @@ FRESULT wav_recording_start(const TCHAR *filename)
         return result;
     }
 
-    // Очередь и RX-статистика очищаются внутри
-    // i2s_rx_start_block(), пока приём остановлен.
-    if (i2s_rx_init() != 0 ||
+    // Настраиваем частоту до инициализации и запуска RX.
+    if (i2s_set_sample_rate(WAV_SAMPLE_RATE) != 0 ||
+        i2s_rx_init() != 0 ||
         i2s_start() != 0)
     {
         i2s_stop();

@@ -4,6 +4,7 @@
 #include "stdbool.h"
 #include <stm32f405xx.h>
 #include "led_controller/led_controller.h"
+#include "stdio.h"
 
 // Ответ от пульта
 
@@ -22,6 +23,11 @@ void led_controller_nvic_init();
 void led_controller_gpio_init();
 void led_controller_usart_init(void);
 void led_controller_clock_init(void);
+
+bool led_raw_take_response(RawResponce *response);
+void led_raw_cancel_response(void);
+
+void inc_frame_number();
 
 void usart2_handler(void);
 void uart4_handler(void);

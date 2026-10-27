@@ -13,11 +13,13 @@
 
 RawResponce raw_response;
 volatile uint8_t is_response_ready;
+static volatile bool response_rx_enabled = false;
 volatile uint32_t rx_counter = 0;
 
 uint8_t responce_idx = 0;
+volatile uint8_t echo_skip = 0;
 
-static void inc_frame_number();
+void inc_frame_number();
 volatile uint8_t frame_number = 0;
 
 
@@ -25,29 +27,46 @@ volatile uint8_t frame_number = 0;
 static void send_sync(USART_TypeDef *USARTx, const uint8_t* raw, uint8_t len);
 void send_command_sync(USART_TypeDef *USARTx, SetLedStateCommand cmd)
 {
-    is_response_ready = 0;
-    responce_idx = 0; 
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+
+    if (response_rx_enabled || is_response_ready)
+    {
+        __set_PRIMASK(primask);
+
+        return;
+    }
+
+    responce_idx = 0;
+    echo_skip = 3;
+    response_rx_enabled = true;
+
+    __set_PRIMASK(primask);
+
     send_sync(USARTx, cmd.data, 3);
 }
 
 void process_rx_byte(uint8_t byte)
 {
+    if (!response_rx_enabled || is_response_ready)
+    {
+        return;
+    }
+
     raw_response.data[responce_idx] = byte;
 
     responce_idx++;
     rx_counter++;
     // команда принята полностью
-    if(responce_idx == RESPONSE_LENGTH)
+    if (responce_idx == RESPONSE_LENGTH)
     {
-        write_events(raw_response);
-        inc_frame_number();
+        response_rx_enabled = false;
         is_response_ready = 1;
-        responce_idx = 0;
     }
 }
 
 // ----------------- Работа с периферией ------------------
-volatile uint8_t echo_skip = 0;
+
 void send_sync(USART_TypeDef *USARTx, const uint8_t* raw, uint8_t len)
 {
     if (raw == NULL || len == 0) {
@@ -86,6 +105,7 @@ void usart2_handler(void)
 
     if (LL_USART_IsActiveFlag_ORE(USART2))
     {
+        printf("ore flag set\n");
         LL_USART_ClearFlag_ORE(USART2);
     }
 
@@ -106,6 +126,7 @@ void uart4_handler()
 
     if (LL_USART_IsActiveFlag_ORE(UART4))
     {
+        printf("ore flag set\n");
         LL_USART_ClearFlag_ORE(UART4);
     }
 }
@@ -117,6 +138,48 @@ void inc_frame_number()
     {
         frame_number = 0;
     }
+}
+
+bool led_raw_take_response(RawResponce *response)
+{
+    if (response == NULL)
+    {
+        return false;
+    }
+
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+
+    if (!is_response_ready)
+    {
+        __set_PRIMASK(primask);
+
+        return false;
+    }
+
+    *response = raw_response;
+
+    response_rx_enabled = false;
+    is_response_ready = 0;
+    responce_idx = 0;
+    echo_skip = 0;
+
+    __set_PRIMASK(primask);
+
+    return true;
+}
+
+void led_raw_cancel_response(void)
+{
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+
+    response_rx_enabled = false;
+    is_response_ready = 0;
+    responce_idx = 0;
+    echo_skip = 0;
+
+    __set_PRIMASK(primask);
 }
 
 // ------------------ Инициализация периферии ---------------------------

@@ -16,6 +16,12 @@ void NVIC_Init(void){
     NVIC_SetPriority(OTG_FS_IRQn, 5);
     NVIC_EnableIRQ(OTG_FS_IRQn);
 
+    NVIC_SetPriority(DMA1_Stream3_IRQn, 5);
+    NVIC_SetPriority(DMA1_Stream4_IRQn, 5);
+
+    NVIC_EnableIRQ(DMA1_Stream3_IRQn);
+    NVIC_EnableIRQ(DMA1_Stream4_IRQn);
+
     led_controller_nvic_init();
 }
 
@@ -29,6 +35,8 @@ void UART4_IRQHandler(void)
     uart4_handler();
 }
 
+
+
 void TIM6_DAC_IRQHandler(void)
 {
     if (LL_TIM_IsActiveFlag_UPDATE(TIM6))
@@ -39,8 +47,27 @@ void TIM6_DAC_IRQHandler(void)
 }
 
 // Если используете USB OTG FS (встроенный разъём):
+volatile uint32_t usb_reset_count = 0;
+volatile uint32_t usb_enum_count = 0;
+volatile uint32_t usb_suspend_count = 0;
 void OTG_FS_IRQHandler(void)
 {
+    uint32_t status = USB_OTG_FS->GINTSTS & USB_OTG_FS->GINTMSK;
+
+    if (status & USB_OTG_GINTSTS_USBRST)
+    {
+        usb_reset_count++;
+    }
+
+    if (status & USB_OTG_GINTSTS_ENUMDNE)
+    {
+        usb_enum_count++;
+    }
+
+    if (status & USB_OTG_GINTSTS_USBSUSP)
+    {
+        usb_suspend_count++;
+    }
     tud_int_handler(0);  // 0 = rhport 0
 }
 

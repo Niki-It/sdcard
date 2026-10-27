@@ -118,23 +118,15 @@ void GPIO_Init(void)
     LL_GPIO_Init(GPIOA, &gpio_usb_data);
 
     // PA10 (ID) - Определение роли (Host/Device)
-    LL_GPIO_InitTypeDef gpio_usb_id = {0};
-    gpio_usb_id.Pin        = LL_GPIO_PIN_10;
-    gpio_usb_id.Mode       = LL_GPIO_MODE_ALTERNATE;
-    gpio_usb_id.Speed      = LL_GPIO_SPEED_FREQ_HIGH;
-    gpio_usb_id.OutputType = LL_GPIO_OUTPUT_OPENDRAIN;       // Open-Drain по спецификации USB для пина ID
-    gpio_usb_id.Pull       = LL_GPIO_PULL_UP;                // Подтяжка вверх (высокий уровень = режим Device)
-    gpio_usb_id.Alternate  = LL_GPIO_AF_10;
-    LL_GPIO_Init(GPIOA, &gpio_usb_id);
 
     // PA9 (VBUS) - Датчик наличия питания (с делителем на плате)
+    // PA9 — OTG_FS_VBUS
     LL_GPIO_InitTypeDef gpio_usb_vbus = {0};
-    gpio_usb_vbus.Pin        = LL_GPIO_PIN_9;
-    gpio_usb_vbus.Mode       = LL_GPIO_MODE_ALTERNATE;       // Передаем управление пину периферии USB
-    gpio_usb_vbus.Speed      = LL_GPIO_SPEED_FREQ_LOW;       // Для входа VBUS высокая скорость не нужна
-    gpio_usb_vbus.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-    gpio_usb_vbus.Pull       = LL_GPIO_PULL_DOWN;            // Подтяжка вниз, чтобы гарантировать '0' при отключенном кабеле
-    gpio_usb_vbus.Alternate  = LL_GPIO_AF_10;
+
+    gpio_usb_vbus.Pin  = LL_GPIO_PIN_9;
+    gpio_usb_vbus.Mode = LL_GPIO_MODE_INPUT;
+    gpio_usb_vbus.Pull = LL_GPIO_PULL_NO;
+
     LL_GPIO_Init(GPIOA, &gpio_usb_vbus);
 
     // === 7. Настройка пинов SDIO ===

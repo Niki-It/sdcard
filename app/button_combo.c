@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stddef.h>
+#include "stdio.h"
 
 #include "SEGGER_RTT.h"
 #include "button_combo.h"
@@ -13,6 +14,8 @@ static uint32_t combo_last_event_ms = 0;
 static uint8_t combo_active = 0;
 
 static uint8_t active_buttons_mask = 0;
+
+static uint32_t combo_start_ms = 0;
 
 static LedEvent combo_events[BUTTON_COMBO_COUNT] = {NO_EVENT};
 static LedEvent prev_button_states[BUTTON_COMBO_COUNT] = {NO_EVENT};
@@ -45,6 +48,7 @@ static void reset_combo(void)
     combo_active = 0;
     combo_last_event_ms = 0;
     active_buttons_mask = 0;
+    combo_start_ms = 0;
 
     for (uint8_t i = 0; i < BUTTON_COMBO_COUNT; i++)
     {
@@ -53,7 +57,7 @@ static void reset_combo(void)
 }
 
 // Выдача накопленной комбинации.
-static void emit_combo(void)
+static void emit_combo(uint32_t now_ms)
 {
     if (!combo_active || active_buttons_mask == 0U)
     {
@@ -114,7 +118,7 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
     if (combo_active &&
         (uint32_t)(uptime_ms - combo_last_event_ms) >= combo_timeout_ms)
     {
-        emit_combo();
+        emit_combo(uptime_ms);
         reset_combo();
     }
 
@@ -183,11 +187,12 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
             }
         }
 
-        emit_combo();
+        emit_combo(uptime_ms);
         reset_combo();
 
         // Начало новой комбинации.
         combo_active = 1;
+        combo_start_ms = uptime_ms;
         combo_last_event_ms = uptime_ms;
 
         // Наследуем кнопки, удерживаемые в LONG_EVENT.
@@ -209,6 +214,7 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
         if (!combo_active)
         {
             combo_active = 1;
+            combo_start_ms = uptime_ms;
 
             // Наследуем удерживаемые LONG_EVENT.
             add_active_long_buttons(btn_ptr);
@@ -228,7 +234,7 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
 
     if (combo_timeout_ms == 0U)
     {
-        emit_combo();
+        emit_combo(uptime_ms);
         reset_combo();
     }
 }

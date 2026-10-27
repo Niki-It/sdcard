@@ -9,7 +9,7 @@
 #include <sdio/sdio.h>
 
 extern sd_card_info_t card_info;
-static bool ejected = false;
+static volatile bool ejected = false;
 #define MSC_SECTOR_SIZE 512U
 
 static bool msc_range_valid
@@ -233,15 +233,7 @@ void tud_msc_inquiry_cb
     memcpy(product_rev, rev, sizeof(rev) - 1);
 }
 
-bool tud_msc_test_unit_ready_cb(uint8_t lun)
-{
-    if (ejected) {
-        tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x3A, 0x00);
-        return false;
-    }
 
-    return true;
-}
 
 bool tud_msc_is_writable_cb(uint8_t lun)
 {
@@ -284,64 +276,91 @@ bool tud_msc_start_stop_cb
     return true;
 }
 
-#define APP_USB_RHPORT             0U
-#define APP_USB_RECONNECT_DELAY_MS 200U
+#define USB_RECONNECT_DELAY_MS 200U
 
 static uint32_t usb_stopped_ms = 0;
-static bool usb_fault = false;
+static bool usb_disconnected = false;
 
 bool usb_stop(uint32_t now_ms)
 {
-    if (usb_fault)
+    if (!tud_inited())
     {
         return false;
     }
 
-    if (!tud_inited())
+    if (usb_disconnected)
     {
         return true;
     }
 
-    if (!tud_deinit(APP_USB_RHPORT))
-    {
-        usb_fault = true;
-        printf("USB deinit failed\n");
-        return false;
-    }
+    tud_disconnect();
 
+    usb_disconnected = true;
     usb_stopped_ms = now_ms;
+
+    //printf("USB DISCONNECTED\r\n");
 
     return true;
 }
 
 void process_usb(bool idle, uint32_t now_ms)
 {
-    if (!idle || usb_fault)
+    if (!idle || !tud_inited())
     {
         return;
     }
 
-    if (!tud_inited())
+    if (usb_disconnected)
     {
         if ((uint32_t)(now_ms - usb_stopped_ms) <
-            APP_USB_RECONNECT_DELAY_MS)
+            USB_RECONNECT_DELAY_MS)
         {
             return;
         }
 
-        const tusb_rhport_init_t config =
-        {
-            .role = TUSB_ROLE_DEVICE,
-            .speed = TUSB_SPEED_FULL
-        };
+        ejected = false;
 
-        if (!tud_rhport_init(APP_USB_RHPORT, &config))
-        {
-            usb_fault = true;
-            printf("USB init failed\n");
-            return;
-        }
+        tud_connect();
+        usb_disconnected = false;
+
+        //printf("USB RECONNECTED\r\n");
     }
 
     tud_task();
+}
+
+void tud_mount_cb(void)
+{
+    ejected = false;
+    //printf("USB MOUNTED\r\n");
+}
+
+void tud_umount_cb(void)
+{
+    //printf("USB UNMOUNTED\r\n");
+}
+
+bool tud_msc_test_unit_ready_cb(uint8_t lun)
+{
+    //printf("MSC TEST UNIT READY\r\n");
+
+    if (ejected)
+    {
+        tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x3A, 0x00);
+        return false;
+    }
+
+    return true;
+}
+
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+    (void)remote_wakeup_en;
+
+    //printf("USB SUSPEND\r\n");
+}
+
+void tud_resume_cb(void)
+{
+    //printf("USB RESUME\r\n");
 }

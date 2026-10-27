@@ -13,7 +13,7 @@
 #define ACHTUNG_DEBOUNCE_THRESHOLD  5U  // Количество вызовов обработчика с неизменным состоянием сигнала до его подтверждения
 #define TRK_DEBOUNCE_THRESHOLD      15U
 
-#define BUTTON_COMBO_TIMEOUT_MS 500U
+#define BUTTON_COMBO_TIMEOUT_MS 150U
 
 /* ============================================================================
  * Типы данных
@@ -56,6 +56,9 @@ static pin_debounce_t debounced_pins[DEBOUNCE_INPUT_COUNT] = {
      }
 };
 
+#define USB_FS_DEVICE \
+    ((USB_OTG_DeviceTypeDef *)(USB_OTG_FS_PERIPH_BASE + USB_OTG_DEVICE_BASE))
+
 // Отсчитывает миллисекунды - не удалять
 volatile uint32_t uptime_ms = 0;
 static app_state_t state = IDLE;
@@ -67,8 +70,9 @@ int main(void)
     setvbuf(stdout, NULL, _IONBF, 0);
     button_combo_init(BUTTON_COMBO_TIMEOUT_MS);
     periph_init();
-    fs_unit(true);
     tusb_init();
+    fs_unit(true);
+
 
     mux_select(2, MUX_CHANNEL_X1);
     aic3104_init();
@@ -80,9 +84,8 @@ int main(void)
 
     set_leds(LED_VD1 | LED_VD2 | LED_VD3 | LED_VD4 | LED_VD5, true);
 
-    while (1) 
+    while (1)
     {
-
         pin_polling();
         debounce_process(uptime_ms);
         process_achtung_button();
@@ -96,10 +99,6 @@ int main(void)
         process_state_logic();
         process_usb(state == IDLE, uptime_ms);
 
-        if (state == IDLE)
-        {
-            tud_task();
-        }
     }
 }
 
@@ -214,8 +213,7 @@ static void process_state_event(app_event_t event, FRESULT error)
         const bool starts_mode =
             event == APP_EVENT_RECORD_START ||
             event == APP_EVENT_PLAY_REQUEST ||
-            event == APP_EVENT_TRK_PRESSED ||
-            event == APP_EVENT_BYPASS_START;
+            event == APP_EVENT_TRK_PRESSED;
 
         if (starts_mode)
         {

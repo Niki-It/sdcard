@@ -310,11 +310,6 @@ void i2s_dma_init(void)
     configure_rx_dma();
     configure_tx_dma();
 
-    NVIC_SetPriority(DMA1_Stream3_IRQn, 5);
-    NVIC_SetPriority(DMA1_Stream4_IRQn, 5);
-
-    NVIC_EnableIRQ(DMA1_Stream3_IRQn);
-    NVIC_EnableIRQ(DMA1_Stream4_IRQn);
 
     rx_error = 0U;
     tx.error = 0U;

@@ -33,48 +33,24 @@
 #include "stdio.h"
 #include "memory.h"
 #include "storage/tinyusb_serve.h"
+#include "count_bits_table.h"
 
 // Состояния
 typedef enum {
     IDLE,
-    TRK,
-    RECORDING,
-    BYPASS,
-    ACHTUNG,
-
     NOTIFICATION,
     BROADCAST,
     PRM,
     FIRE,
     ALARM, 
-    PLAYING,
+    PLAYING_FR1,
+    PLAYING_FR2,
+    RECORDING_FR1,
+    RECORDING_FR2
 } app_state_t;
 
 // События
 typedef enum {
-    APP_EVENT_RECORD_START,
-    APP_EVENT_RECORD_STOP,
-
-    APP_EVENT_PLAY_REQUEST,
-    APP_EVENT_PLAYBACK_FINISHED,
-    APP_EVENT_PLAYBACK_STOP,
-    APP_EVENT_PLAYBACK_ERROR,
-
-    APP_EVENT_BYPASS_START,
-    APP_EVENT_BYPASS_STOP,
-
-    
-
-    APP_EVENT_RECORDING_ERROR,
-
-    APP_EVENT_ACHTUNG_ON,
-    APP_EVENT_ACHTUNG_OFF,
-
-    APP_EVENT_TRK_PRESSED,
-    APP_EVENT_TRK_RELEASED,
-
-    // режимы
-
     // Оповещение
     APP_EVENT_NOTIFICATION_START,
     APP_EVENT_NOTIFICATION_FINISH,
@@ -91,10 +67,17 @@ typedef enum {
     APP_EVENT_FIRE_START,
     APP_EVENT_FIRE_FINISH,
 
+    // Запись ФР1, ФР2
+    APP_EVENT_FR1_RECORD_START,
+    APP_EVENT_FR1_RECORD_FINISH,
+    APP_EVENT_FR2_RECORD_START,
+    APP_EVENT_FR2_RECORD_FINISH,
+
     // Тревога
     APP_EVENT_ALARM_START,
     // Воспроизведение
-    APP_EVENT_PLAYING_START,
+    APP_EVENT_PLAYING_FR1_START,
+    APP_EVENT_PLAYING_FR2_START,
     APP_EVENT_ALARM_PLAYING_FINISH,
 
     // + и -

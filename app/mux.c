@@ -30,3 +30,7 @@ void mux_select(uint8_t mux_number, mux_channel_t channel) {
         else    LL_GPIO_ResetOutputPin(MUX2_PORT, MUX2_A2_PIN);
     }
 }
+
+void switch_mux(mux_mode_t mode) {
+    mux_select(2, mode);
+}

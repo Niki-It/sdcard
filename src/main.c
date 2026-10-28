@@ -90,18 +90,13 @@ int main(void)
     {
         pin_polling();
         debounce_process(uptime_ms);
-        process_achtung_button();
-        process_trk_button();
         
         led_controller_process(uptime_ms);
         ButtonStatus button_status = poll_button_events();
 
         process_button_combinations(&button_status, uptime_ms);
         blinking_process(uptime_ms);
-        process_state_logic();
         process_usb(state == IDLE, uptime_ms);
-        uint32_t result = strcasecmp(".MP3",".mp3");
-        printf("result = %lu\n", result);
     }
 }
 
@@ -118,103 +113,136 @@ static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], ui
 void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT])
 {
     // Оповещение
-    if (state == IDLE && combo_has(buttons_mask, events, 1, LONG_EVENT)) {
+    if (state == IDLE && combo_has(buttons_mask, events, 1, LONG_EVENT) 
+            && count_bits(buttons_mask) == 1) 
+    {
+        swich_relay(GGC);
         process_state_event(APP_EVENT_NOTIFICATION_START, FR_OK);
         return;
     }
-    if(state == NOTIFICATION && combo_has(buttons_mask, events, 1, NO_EVENT))
+    if(state == NOTIFICATION && combo_has(buttons_mask, events, 1, NO_EVENT)
+        && count_bits(buttons_mask) == 1)
     {
         process_state_event(APP_EVENT_NOTIFICATION_FINISH, FR_OK);
         return;
     }
 
     // Передача
-    if (state == BROADCAST && combo_has(buttons_mask, events, 3, LONG_EVENT)) {
+    if (state == BROADCAST && combo_has(buttons_mask, events, 3, LONG_EVENT)
+            && count_bits(buttons_mask) == 1) 
+    {
+        swich_relay(APB);
         process_state_event(APP_EVENT_BROADCAST_START, FR_OK);
         return;
     }
-    if(state == BROADCAST && combo_has(buttons_mask, events, 3, NO_EVENT))
+    if(state == BROADCAST && combo_has(buttons_mask, events, 3, NO_EVENT)
+        && count_bits(buttons_mask) == 1)
     {
         process_state_event(APP_EVENT_BROADCAST_FINISH, FR_OK);
         return;
     }
 
     // Прием
-    if (state == PRM && combo_has(buttons_mask, events, 5, LONG_EVENT)) {
+    if (state == PRM && combo_has(buttons_mask, events, 5, LONG_EVENT)
+        && count_bits(buttons_mask) == 1) 
+    {
+        swich_relay(OPER);
         process_state_event(APP_EVENT_BROADCAST_START, FR_OK);
         return;
     }
-    if(state == PRM && combo_has(buttons_mask, events, 5, NO_EVENT))
+    if(state == PRM && combo_has(buttons_mask, events, 5, NO_EVENT)
+        && count_bits(buttons_mask) == 1)
     {
         process_state_event(APP_EVENT_BROADCAST_FINISH, FR_OK);
         return;
     }
 
     // Тревога 
-    if(state == IDLE && combo_has(buttons_mask, events, 0, SHORT_EVENT))
+    if(state == IDLE && combo_has(buttons_mask, events, 0, SHORT_EVENT)
+        && count_bits(buttons_mask) == 2)
     {
-        process_state_event(APP_EVENT_ALARM_START, FR_OK);
-        return;
+        if(combo_has(buttons_mask,events, 1, SHORT_EVENT))
+        {
+            swich_relay(GGC);
+            process_state_event(APP_EVENT_ALARM_START, FR_OK);
+            return;
+        }
+        if(combo_has(buttons_mask,events, 3, SHORT_EVENT))
+        {
+            swich_relay(APB);
+            process_state_event(APP_EVENT_ALARM_START, FR_OK);
+            return;
+        }
+        if(combo_has(buttons_mask,events, 5, SHORT_EVENT))
+        {
+            swich_relay(OPER);
+            process_state_event(APP_EVENT_ALARM_START, FR_OK);
+            return;
+        }
     }
-    
-
-    if(state == PRM && combo_has(buttons_mask, events, 5, NO_EVENT))
+    // Воспроизведение
+    if(state == IDLE && combo_has(buttons_mask, events, 2, SHORT_EVENT)
+        && count_bits(buttons_mask) == 2)
     {
-        process_state_event(APP_EVENT_BROADCAST_FINISH, FR_OK);
-        return;
-    }
-    /*
-     * Отпускание кнопки текущего режима завершает режим и поглощает
-     * всю комбинацию. Остальные события этой комбинации игнорируются.
-     */
-    if (state == RECORDING &&
-        combo_has(buttons_mask, events, 0, NO_EVENT)) {
-        process_state_event(APP_EVENT_RECORD_STOP, FR_OK);
-        return;
+        if(combo_has(buttons_mask,events, 1, SHORT_EVENT))
+        {
+            swich_relay(GGC);
+            process_state_event(APP_EVENT_PLAYING_FR1_START, FR_OK);
+            return;
+        }
+        if(combo_has(buttons_mask,events, 3, SHORT_EVENT))
+        {
+            swich_relay(APB);
+            process_state_event(APP_EVENT_PLAYING_FR1_START, FR_OK);
+            return;
+        }
+        if(combo_has(buttons_mask,events, 5, SHORT_EVENT))
+        {
+            swich_relay(OPER);
+            process_state_event(APP_EVENT_PLAYING_FR1_START, FR_OK);
+            return;
+        }
     }
 
-    if (state == PLAYING &&
-        combo_has(buttons_mask, events, 3U, SHORT_EVENT))
+    if(state == IDLE && combo_has(buttons_mask, events, 4, SHORT_EVENT)
+        && count_bits(buttons_mask) == 2)
     {
-        process_state_event(APP_EVENT_PLAYBACK_STOP, FR_OK);
-        return;
+        if(combo_has(buttons_mask,events, 1, SHORT_EVENT))
+        {
+            swich_relay(GGC);
+            process_state_event(APP_EVENT_PLAYING_FR2_START, FR_OK);
+            return;
+        }
+        if(combo_has(buttons_mask,events, 3, SHORT_EVENT))
+        {
+            swich_relay(APB);
+            process_state_event(APP_EVENT_PLAYING_FR2_START, FR_OK);
+            return;
+        }
+        if(combo_has(buttons_mask,events, 5, SHORT_EVENT))
+        {
+            swich_relay(OPER);
+            process_state_event(APP_EVENT_PLAYING_FR2_START, FR_OK);
+            return;
+        }
     }
 
-    if (state == BYPASS &&
-        combo_has(buttons_mask, events, 2, NO_EVENT)) {
-        process_state_event(APP_EVENT_BYPASS_STOP, FR_OK);
-        return;
-    }
-
-    /*
-     * Из одной комбинации выбирается не более одного запроса режима.
-     * Если запрос отклонён или запуск не удался, другой режим не запускается.
-     */
-    if (combo_has(buttons_mask, events, 0, LONG_EVENT)) {
-        process_state_event(APP_EVENT_RECORD_START, FR_OK);
-    } else if (combo_has(buttons_mask, events, 1, SHORT_EVENT)) 
+    if( (state == PLAYING_FR1 || state == PLAYING_FR2 || state == ALARM)
+        && combo_has(buttons_mask, events, 2, SHORT_EVENT) && combo_has(buttons_mask, events, 4, SHORT_EVENT) && count_bits(buttons_mask) == 2)
     {
-        format = PLAYBACK_WAV;
-        process_state_event(APP_EVENT_PLAY_REQUEST, FR_OK);
+        process_state_event(APP_EVENT_ALARM_PLAYING_FINISH, FR_OK);
         return;
-    } 
-    else if(combo_has(buttons_mask, events, 4, SHORT_EVENT))
+    }
+
+    if(state == IDLE && combo_has(buttons_mask, events, 6, SHORT_EVENT) && count_bits(buttons_mask) == 2)
     {
-        format = PLAYBACK_MP3;
-        process_state_event(APP_EVENT_PLAY_REQUEST, FR_OK);
+        process_common_event(APP_EVENT_VOLUME_UP);
         return;
     }
-    else if (combo_has(buttons_mask, events, 2, LONG_EVENT)) {
-        process_state_event(APP_EVENT_BYPASS_START, FR_OK);
-    }
-
-    /* Регулировка громкости обрабатывается после запроса режима. */
-    if (combo_has(buttons_mask, events, 6, SHORT_EVENT)) {
-        process_state_event(APP_EVENT_VOLUME_UP, FR_OK);
-    }
-
-    if (combo_has(buttons_mask, events, 7, SHORT_EVENT)) {
-        process_state_event(APP_EVENT_VOLUME_DOWN, FR_OK);
+    if(state == IDLE && combo_has(buttons_mask, events, 7, SHORT_EVENT) && count_bits(buttons_mask) == 2)
+    {
+        process_common_event(APP_EVENT_VOLUME_DOWN);
+        return;
     }
 }
 
@@ -225,119 +253,101 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
 
 static void process_state_event(app_event_t event, FRESULT error)
 {
-    /* Включение ACHTUNG разрешено из любого обычного режима. */
-    if (event == APP_EVENT_ACHTUNG_ON) {
-        if (state != ACHTUNG) 
-        {
-            if (!usb_stop(uptime_ms))
-            {
-                return;
-            }
-            interrupt_mode(state);
-
-            state = ACHTUNG;
-            printf("ACHTUNG started\n");
-        }
-
-        return;
-    }
-
-    /* В режиме ACHTUNG обрабатывается только событие выключения. */
-    if (state == ACHTUNG) {
-        if (event == APP_EVENT_ACHTUNG_OFF) {
-            state = IDLE;
-            printf("ACHTUNG finished\n");
-        }
-
-        return;
-    }
-
-    /* Общие команды не изменяют состояние. */
-    if (process_common_event(event)) {
-        return;
-    }
-    
-    if (state == IDLE)
+    // Оповещение
+    if(event == APP_EVENT_NOTIFICATION_START)
     {
-        const bool starts_mode =
-            event == APP_EVENT_RECORD_START ||
-            event == APP_EVENT_PLAY_REQUEST ||
-            event == APP_EVENT_TRK_PRESSED;
-
-        if (starts_mode)
-        {
-            if (!usb_stop(uptime_ms))
-            {
-                return;
-            }
-        }
+        //start_bypass();
+        state = NOTIFICATION;
+    }
+    else if(event == APP_EVENT_NOTIFICATION_FINISH)
+    {
+        //stop_bypass();
+        state = IDLE;
     }
 
-    /* Переходы обычных режимов. */
-    switch (state) {
-    case IDLE:
-        switch (event) {
-        case APP_EVENT_RECORD_START:
-            if (start_recording() == FR_OK) {
-                state = RECORDING;
-            }
-            break;
-
-        case APP_EVENT_PLAY_REQUEST:
-            if (start_playback() == FR_OK) {
-                state = PLAYING;
-            }
-            break;
-
-        case APP_EVENT_TRK_PRESSED:
-            start_trk();
-            break;
-
-        case APP_EVENT_BYPASS_START:
-            start_bypass();
-            state = BYPASS;
-            break;
-
-        default:
-            break;
-        }
-        break;
-
-    case RECORDING:
-        if (event == APP_EVENT_RECORD_STOP ||
-            event == APP_EVENT_RECORDING_ERROR) {
-            stop_recording(event, error);
-            state = IDLE;
-        }
-        break;
-
-    case PLAYING:
-        if (event == APP_EVENT_PLAYBACK_STOP)
-        {
-            app_playback_abort();
-            state = IDLE;
-        }
-        if (event == APP_EVENT_PLAYBACK_FINISHED ||
-            event == APP_EVENT_PLAYBACK_ERROR) {
-            finish_playback(event, error);
-            state = IDLE;
-        }
-        break;
-
-    case BYPASS:
-        if (event == APP_EVENT_BYPASS_STOP) {
-            stop_bypass();
-            state = IDLE;
-        }
-        break;
-    case TRK:
-        if (event == APP_EVENT_TRK_RELEASED) {
-            stop_trk();
-        }
-        break;
-    default:
-        break;
+    // Передача
+    else if(event == APP_EVENT_BROADCAST_START)
+    {
+        //start_bypass();
+        state = BROADCAST;
     }
+    else if(event == APP_EVENT_BROADCAST_FINISH)
+    {
+        //stop_bypass();
+        state = IDLE;
+    }
+
+    // Прием
+    else if(event == APP_EVENT_PRM_START)
+    {
+        //start_bypass();
+        state = PRM;
+    }
+    else if(event == APP_EVENT_PRM_FINISH)
+    {
+        //stop_bypass();
+        state = IDLE;
+    }
+
+    // Речевое пожарное 
+    else if(event == APP_EVENT_FIRE_START)
+    {
+        // TODO:
+        state = FIRE;
+    }
+    else if(event == APP_EVENT_FIRE_FINISH)
+    {
+        // TODO:
+        state = FIRE;
+    }
+
+    // Запись FR1
+    else if(event == APP_EVENT_FR1_RECORD_START)
+    {
+        // TODO:
+        state = RECORDING_FR1;
+    }
+    else if(event == APP_EVENT_FR1_RECORD_FINISH)
+    {
+        // TODO:
+        state = IDLE;
+    }
+    // Запись FR2
+    else if(event == APP_EVENT_FR2_RECORD_START)
+    {
+        // TODO:
+        state = RECORDING_FR2;
+    }
+    else if(event == APP_EVENT_FR2_RECORD_FINISH)
+    {
+        // TODO:
+        state = IDLE;
+    }
+
+    // Тревога
+    else if(event == APP_EVENT_ALARM_START)
+    {
+        // TODO:
+        state = ALARM;
+    }
+
+    // воспроизведение фр1, фр2
+    else if(event == APP_EVENT_PLAYING_FR1_START)
+    {
+        //TODO:
+        state = PLAYING_FR1;
+    }
+    else if(event == APP_EVENT_PLAYING_FR2_START)
+    {
+        // TODO:
+        state = PLAYING_FR2;
+    }
+    // прерывание alarm , fr1, fr2
+    else if(event == APP_EVENT_ALARM_PLAYING_FINISH)
+    {
+        state = IDLE;
+    }
+
 }
 
 
@@ -390,295 +400,6 @@ static int process_common_event(app_event_t event)
         return 0;
     }
 }
-
-
-/* ============================================================================
- * Периодическое обслуживание текущего состояния
- * ========================================================================== */
-
-static void process_state_logic(void)
-{
-    switch (state) {
-    case PLAYING: 
-    {
-        perf_log_start();
-        FRESULT result = audio_playback_task();
-        perf_log_finish();
-
-        if (result != FR_OK) {
-            process_state_event(APP_EVENT_PLAYBACK_ERROR, result);
-        } else if (!audio_playback_is_active()) {
-            process_state_event(APP_EVENT_PLAYBACK_FINISHED, FR_OK);
-        }
-        break;
-    }
-
-    case RECORDING: {
-        FRESULT result = wav_recording_task();
-
-        if (result != FR_OK) {
-            process_state_event(APP_EVENT_RECORDING_ERROR, result);
-        }
-        break;
-    }
-
-    // Без переодического обслуживания
-    case IDLE:
-    case BYPASS:
-    case ACHTUNG:
-    case TRK:
-        break;
-
-    default:
-        break;
-    }
-}
-
-
-/* ============================================================================
- * Преобразование состояния кнопки ACHTUNG в события
- * ========================================================================== */
-
-static void process_achtung_button(void)
-{
-    static uint8_t previous_state = 1;
-
-    uint8_t current_state = debounced_pins[DEBOUNCE_INPUT_ACHTUNG].state;
-
-    /* Событие формируется только при изменении обработанного уровня. */
-    if (current_state == previous_state) {
-        return;
-    }
-
-    previous_state = current_state;
-
-    if (current_state == 0U) {
-        process_state_event(APP_EVENT_ACHTUNG_ON, FR_OK);
-    } else {
-        process_state_event(APP_EVENT_ACHTUNG_OFF, FR_OK);
-    }
-}
-static void process_trk_button(void)
-{
-    static uint8_t previous_state = 1U;
-    uint8_t current_state = debounced_pins[DEBOUNCE_INPUT_TRK].state;
-
-    if (current_state == previous_state) {
-        return;
-    }
-
-    previous_state = current_state;
-
-    if (current_state == 0U) {
-        process_state_event(APP_EVENT_TRK_PRESSED, FR_OK);
-    } else {
-        process_state_event(APP_EVENT_TRK_RELEASED, FR_OK);
-    }
-}
-
-
-
-/* ============================================================================
- * Управление усилителями
- * ========================================================================== */
-
-static void mute_amplifiers(void)
-{
-    LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
-    LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
-}
-
-static void unmute_amplifiers(void)
-{
-    LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
-    LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
-}
-
-
-/* ============================================================================
- * Действия режима записи
- * ========================================================================== */
-
-/* Функции действий не изменяют состояние и не отправляют события. */
-static FRESULT start_recording(void)
-{
-    mute_amplifiers();
-
-    aic3104_soft_reset();
-    aic3104_init_clocking();
-    aic3104_line1lp_to_i2s();
-
-    FRESULT result = wav_recording_start("record.wav");
-
-    if (result == FR_OK) {
-        printf("WAV recording started\n");
-    } else {
-        printf("WAV recording start error: %d\n", (int)result);
-    }
-
-    return result;
-}
-
-static void stop_recording(app_event_t reason, FRESULT error)
-{
-    FRESULT result = wav_recording_end();
-
-    mute_amplifiers();
-
-    switch (reason) {
-    case APP_EVENT_RECORDING_ERROR:
-        printf(
-            "WAV write error: %d, end: %d\n",
-            (int)error, (int)result
-        );
-        break;
-
-    case APP_EVENT_ACHTUNG_ON:
-        printf("WAV recording interrupted: %d\n", (int)result);
-        break;
-
-    default:
-        printf( "WAV recording finished: %d\n", (int)result);
-        break;
-    }
-}
-
-
-/* ============================================================================
- * Действия режима воспроизведения
- * ========================================================================== */
-
-static FRESULT start_playback(void)
-{
-    mute_amplifiers();
-
-    aic3104_soft_reset();
-    aic3104_init_clocking();
-    aic3104_i2s_to_hprout();
-
-    FRESULT result;
-    if(format == PLAYBACK_MP3)
-    {
-        perf_log_init(PERF_LOG_MAX);
-        result = audio_playback_start(
-            "record.mp3", AUDIO_FORMAT_MP3
-        );
-    }
-    else if(format == PLAYBACK_WAV)
-    {
-        result = audio_playback_start(
-            "record.wav", AUDIO_FORMAT_WAV
-        );
-    }
-    
-
-    if (result == FR_OK) {
-        unmute_amplifiers();
-        printf("WAV playback started\n");
-    } else {
-        printf("WAV playback start error: %d\n", (int)result);
-    }
-
-    return result;
-}
-
-/*
- * При штатном завершении и ошибке воспроизведение уже остановлено
- * внутри audio_playback_task().
- */
-static void finish_playback(app_event_t reason, FRESULT error)
-{
-    mute_amplifiers();
-
-    if (reason == APP_EVENT_PLAYBACK_ERROR) {
-        printf("WAV playback error: %d\n", (int)error);
-    } else {
-        printf("WAV playback finished\n");
-    }
-}
-
-
-/* ============================================================================
- * Действия режима аналогового обхода
- * ========================================================================== */
-
-static void start_bypass(void)
-{
-    mute_amplifiers();
-
-    aic3104_soft_reset();
-    aic3104_init_clocking();
-    aic3104_init_analog_bypass();
-
-    unmute_amplifiers();
-
-    printf("Bypass started\n");
-}
-
-static void stop_bypass(void)
-{
-    mute_amplifiers();
-
-    printf("Bypass finished\n");
-}
-
-static void start_trk(void)
-{
-    mux_select(2, MUX_CHANNEL_X2);
-    start_bypass();
-
-    LL_GPIO_SetOutputPin(GPIOB, LL_GPIO_PIN_7);
-
-    printf("TRK started\n");
-    state = TRK;
-}
-
-static void stop_trk(void)
-{
-    stop_bypass();
-
-    LL_GPIO_ResetOutputPin(GPIOB, LL_GPIO_PIN_7);
-    mux_select(2, MUX_CHANNEL_X1);
-
-    printf("TRK finished\n");
-    state = IDLE;
-}
-
-
-/* ============================================================================
- * Завершение текущего режима перед входом в ACHTUNG
- * ========================================================================== */
-
-static void interrupt_mode(app_state_t previous_state)
-{
-    mute_amplifiers();
-
-    switch (previous_state) {
-    case RECORDING:
-        stop_recording(APP_EVENT_ACHTUNG_ON, FR_OK);
-        break;
-
-    case PLAYING:
-        app_playback_abort();
-        break;
-
-    case BYPASS:
-        stop_bypass();
-        break;
-    case TRK:
-        stop_trk();
-        break;
-
-    default:
-        break;
-    }
-}
-
-
-/* ============================================================================
- * Инициализация периферии
- * ========================================================================== */
-
 void periph_init(void)
 {
     /* Отладочный журнал и системное тактирование. */
@@ -724,23 +445,6 @@ void SysTick_Handler(void)
     }
 }
 
-static void app_playback_abort(void)
-{
-    mute_amplifiers();
-
-    FRESULT result = audio_playback_stop();
-
-    if (result != FR_OK)
-    {
-        printf("Playback stop error: %d\n", (int)result);
-    }
-    else
-    {
-        printf("Playback stopped\n");
-    }
-}
-// Переключение реле
-
 
 static void swich_relay(RelayMode mode)
 {
@@ -764,4 +468,16 @@ static void swich_relay(RelayMode mode)
             break;
     
     }
+}
+
+static void mute_amplifiers(void)
+{
+    LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
+    LL_GPIO_SetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
+}
+
+static void unmute_amplifiers(void)
+{
+    LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP1_PIN);
+    LL_GPIO_ResetOutputPin(AMP_PORT, MUTE_AMP2_PIN);
 }

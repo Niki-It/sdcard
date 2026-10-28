@@ -2,6 +2,7 @@ set(SOURCES
     "app/aic3104.c"
     "app/button_combo.c"
     "app/circular/ring.c"
+    "app/count_bits_table.c"
     "app/customcrc8/new_crc8.c"
     "app/debounce.c"
     "app/i2c.c"

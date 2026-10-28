@@ -35,11 +35,24 @@ typedef enum {
     MUX_CHANNEL_X7 = 7   // Не используется
 } mux_channel_t;
 
+typedef enum {
+    SIG_PLT1 = 0,
+    SIG_PLT2 = 1,
+    SIG_TRK = 2,
+    PLR_IN = 4
+} mux_mode_t;
+
 /**
  * @brief Выбор канала аналогового мультиплексора
  * @param mux_number Номер микросхемы (1 или 2)
  * @param channel Номер канала (0-7 или именованная константа MUX_CHANNEL_X*)
  */
 void mux_select(uint8_t mux_number, mux_channel_t channel);
+
+/**
+ * @brief Выбор пути аналогового мультиплексора
+ * @param mode Путь: SIG_PLT1, SIG_PLT2, SIG_TRK, PLR_IN
+ */
+void switch_mux(mux_mode_t mode);
 
 #endif

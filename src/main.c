@@ -1,4 +1,5 @@
 #include "main.h"
+#include "string.h"
 /* ============================================================================
  * Константы 
  * ========================================================================== */
@@ -84,6 +85,7 @@ int main(void)
 
     set_leds(LED_VD1 | LED_VD2 | LED_VD3 | LED_VD4 | LED_VD5, true);
 
+
     while (1)
     {
         pin_polling();
@@ -98,7 +100,8 @@ int main(void)
         blinking_process(uptime_ms);
         process_state_logic();
         process_usb(state == IDLE, uptime_ms);
-
+        uint32_t result = strcasecmp(".MP3",".mp3");
+        printf("result = %lu\n", result);
     }
 }
 
@@ -114,6 +117,52 @@ static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], ui
 
 void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT])
 {
+    // Оповещение
+    if (state == IDLE && combo_has(buttons_mask, events, 1, LONG_EVENT)) {
+        process_state_event(APP_EVENT_NOTIFICATION_START, FR_OK);
+        return;
+    }
+    if(state == NOTIFICATION && combo_has(buttons_mask, events, 1, NO_EVENT))
+    {
+        process_state_event(APP_EVENT_NOTIFICATION_FINISH, FR_OK);
+        return;
+    }
+
+    // Передача
+    if (state == BROADCAST && combo_has(buttons_mask, events, 3, LONG_EVENT)) {
+        process_state_event(APP_EVENT_BROADCAST_START, FR_OK);
+        return;
+    }
+    if(state == BROADCAST && combo_has(buttons_mask, events, 3, NO_EVENT))
+    {
+        process_state_event(APP_EVENT_BROADCAST_FINISH, FR_OK);
+        return;
+    }
+
+    // Прием
+    if (state == PRM && combo_has(buttons_mask, events, 5, LONG_EVENT)) {
+        process_state_event(APP_EVENT_BROADCAST_START, FR_OK);
+        return;
+    }
+    if(state == PRM && combo_has(buttons_mask, events, 5, NO_EVENT))
+    {
+        process_state_event(APP_EVENT_BROADCAST_FINISH, FR_OK);
+        return;
+    }
+
+    // Тревога 
+    if(state == IDLE && combo_has(buttons_mask, events, 0, SHORT_EVENT))
+    {
+        process_state_event(APP_EVENT_ALARM_START, FR_OK);
+        return;
+    }
+    
+
+    if(state == PRM && combo_has(buttons_mask, events, 5, NO_EVENT))
+    {
+        process_state_event(APP_EVENT_BROADCAST_FINISH, FR_OK);
+        return;
+    }
     /*
      * Отпускание кнопки текущего режима завершает режим и поглощает
      * всю комбинацию. Остальные события этой комбинации игнорируются.
@@ -688,5 +737,31 @@ static void app_playback_abort(void)
     else
     {
         printf("Playback stopped\n");
+    }
+}
+// Переключение реле
+
+
+static void swich_relay(RelayMode mode)
+{
+    switch (mode)
+    {
+        case GGC:
+            LL_GPIO_ResetOutputPin(AMP_PORT, APB_PIN);
+            LL_GPIO_ResetOutputPin(AMP_PORT, OPR_PIN);
+            break;
+        case APB:
+            LL_GPIO_SetOutputPin(AMP_PORT, APB_PIN);
+            LL_GPIO_ResetOutputPin(AMP_PORT, OPR_PIN);
+            break;
+        case OPER:
+            LL_GPIO_SetOutputPin(AMP_PORT, APB_PIN);
+            LL_GPIO_SetOutputPin(AMP_PORT, OPR_PIN);
+            break;
+        default:
+            LL_GPIO_ResetOutputPin(AMP_PORT, APB_PIN);
+            LL_GPIO_ResetOutputPin(AMP_PORT, OPR_PIN);
+            break;
+    
     }
 }

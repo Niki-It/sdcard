@@ -39,9 +39,15 @@ typedef enum {
     IDLE,
     TRK,
     RECORDING,
-    PLAYING,
     BYPASS,
-    ACHTUNG
+    ACHTUNG,
+
+    NOTIFICATION,
+    BROADCAST,
+    PRM,
+    FIRE,
+    ALARM, 
+    PLAYING,
 } app_state_t;
 
 // События
@@ -57,8 +63,7 @@ typedef enum {
     APP_EVENT_BYPASS_START,
     APP_EVENT_BYPASS_STOP,
 
-    APP_EVENT_VOLUME_UP,
-    APP_EVENT_VOLUME_DOWN,
+    
 
     APP_EVENT_RECORDING_ERROR,
 
@@ -66,7 +71,35 @@ typedef enum {
     APP_EVENT_ACHTUNG_OFF,
 
     APP_EVENT_TRK_PRESSED,
-    APP_EVENT_TRK_RELEASED
+    APP_EVENT_TRK_RELEASED,
+
+    // режимы
+
+    // Оповещение
+    APP_EVENT_NOTIFICATION_START,
+    APP_EVENT_NOTIFICATION_FINISH,
+
+    // Прием
+    APP_EVENT_PRM_START,
+    APP_EVENT_PRM_FINISH,
+
+    // Передача
+    APP_EVENT_BROADCAST_START,
+    APP_EVENT_BROADCAST_FINISH,
+
+    // Речевое пожарное
+    APP_EVENT_FIRE_START,
+    APP_EVENT_FIRE_FINISH,
+
+    // Тревога
+    APP_EVENT_ALARM_START,
+    // Воспроизведение
+    APP_EVENT_PLAYING_START,
+    APP_EVENT_ALARM_PLAYING_FINISH,
+
+    // + и -
+    APP_EVENT_VOLUME_UP,
+    APP_EVENT_VOLUME_DOWN,
 } app_event_t;
 
 /* ============================================================================
@@ -116,4 +149,13 @@ static void process_state_logic(void);
 
 /* Проверка события отдельной кнопки в комбинации. */
 static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event);
+
+
+typedef enum 
+{
+    GGC = 0,
+    APB = 1,
+    OPER = 2
+} RelayMode;
+static void swich_relay(RelayMode mode);
 

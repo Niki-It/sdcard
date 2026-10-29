@@ -43,6 +43,9 @@ volatile uint32_t uptime_ms = 0;
 
 static app_state_t state = IDLE;
 sd_card_info_t card_info;
+#define TIMEOUT 5000
+volatile uint32_t timer = 0;
+volatile uint8_t flag = 0;
 
 /* ============================================================================
  * Основная логика
@@ -263,7 +266,7 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
     if( (state == PLAYING_FR1 || state == PLAYING_FR2 || state == ALARM)
         && combo_has(buttons_mask, events, 2, SHORT_EVENT) && combo_has(buttons_mask, events, 4, SHORT_EVENT) && count_bits(buttons_mask) == 2)
     {
-        process_state_event(APP_EVENT_ALARM_FINISH, FR_OK);
+        process_state_event(APP_EVENT_ALARM_FR_FINISH, FR_OK);
         return;
     }
 
@@ -286,105 +289,120 @@ static void process_state_event(app_event_t event, FRESULT error)
     // Оповещение
     if(event == APP_EVENT_NOTIFICATION_START)
     {
-
+        printf("NOTIFICATION START\n");
         state = NOTIFICATION;
     }
     else if(event == APP_EVENT_NOTIFICATION_FINISH)
     {
-
+        printf("NOTIFICATION FINISH\n");
         state = IDLE;
     }
 
     // Передача
     else if(event == APP_EVENT_BROADCAST_START)
     {
-
+        printf("BROADCAST START\n");
         state = BROADCAST;
     }
     else if(event == APP_EVENT_BROADCAST_FINISH)
     {
-
+        printf("BROADCAST FINISH\n");
         state = IDLE;
     }
 
     // Прием
     else if(event == APP_EVENT_PRM_START)
     {
-
+        printf("PRIEM START\n");
         state = PRM;
     }
     else if(event == APP_EVENT_PRM_FINISH)
     {
-
+        printf("PRIEM FINISH\n");
         state = IDLE;
     }
 
     // Речевое пожарное 
     else if(event == APP_EVENT_FIRE_START)
     {
+        printf("FIRE START\n");
         state = FIRE;
     }
     else if(event == APP_EVENT_FIRE_FINISH)
     {
+        printf("FIRE FINISH\n");
         state = IDLE;
     }
 
     // Запись FR1
     else if(event == APP_EVENT_FR1_RECORD_START)
     {
-
+        printf("FR1 RECORDING START\n");
         state = RECORDING_FR1;
     }
     else if(event == APP_EVENT_FR1_RECORD_FINISH)
     {
-
+        printf("FR1 RECORDING FINISH\n");
         state = IDLE;
     }
 
     // Запись FR2
     else if(event == APP_EVENT_FR2_RECORD_START)
     {
-
+        printf("FR2 RECORDING START\n");
         state = RECORDING_FR2;
     }
     else if(event == APP_EVENT_FR2_RECORD_FINISH)
     {
+        printf("FR2 RECORDING FINISH\n");
         state = IDLE;
     }
 
     // Тревога
     else if(event == APP_EVENT_ALARM_START)
     {
+        printf("ALARM START\n");
+        timer = TIMEOUT;
         state = ALARM;
+    }
+    else if(event == APP_EVENT_ALARM_FINISH)
+    {
+        printf("ALARM FINISH\n");
+        state = IDLE;
     }
 
     // воспроизведение фр1
     else if(event == APP_EVENT_PLAYING_FR1_START)
     {
-
+        printf("FR1 PLAYING START\n");
+        timer = TIMEOUT;
         state = PLAYING_FR1;
     }
     else if(event == APP_EVENT_PLAYING_FR1_FINISH)
     {
-
+        printf("FR1 PLAYING FINISH\n");
         state = IDLE;
     }
 
     // воспроизведение фр2
     else if(event == APP_EVENT_PLAYING_FR2_START)
     {
-
+        printf("FR2 PLAYING START\n");
+        timer = TIMEOUT;
         state = PLAYING_FR2;
     }
-        else if(event == APP_EVENT_PLAYING_FR2_FINISH)
+    else if(event == APP_EVENT_PLAYING_FR2_FINISH)
     {
-
+        printf("FR2 PLAYING FINISH\n");
         state = IDLE;
     }
 
     // прерывание alarm , fr1, fr2
-    else if(event == APP_EVENT_ALARM_FINISH)
+    else if(event == APP_EVENT_ALARM_FR_FINISH)
     {
+        printf("ALARM AND FR STOPPED\n");
+        timer = 0;
+        flag = 0;
         state = IDLE;
     }
 
@@ -464,15 +482,27 @@ static void process_state_logic(void)
             break;
 
         case ALARM:
-            // TODO
+            if(flag == 1)
+            {
+                process_state_event(APP_EVENT_ALARM_FINISH, FR_OK);
+                flag = 0;
+            }
             break;
 
         case PLAYING_FR1:
-            // TODO
+            if(flag == 1)
+            {
+                process_state_event(APP_EVENT_PLAYING_FR1_FINISH, FR_OK);
+                flag = 0;
+            }
             break;
 
         case PLAYING_FR2:
-            // TODO
+            if(flag == 1)
+            {
+                process_state_event(APP_EVENT_PLAYING_FR2_FINISH, FR_OK);
+                flag = 0;
+            }
             break;
     }
 }
@@ -516,11 +546,11 @@ static void process_trk_button(void)
 
     if (current_state == 0U) {
         if (state == IDLE) {
-            process_state_event(APP_EVENT_FIRE_START, FR_OK);
+            process_state_event(APP_EVENT_PRM_START, FR_OK);
         }
     } else {
-        if (state == FIRE) {
-            process_state_event(APP_EVENT_FIRE_FINISH, FR_OK);
+        if (state == PRM) {
+            process_state_event(APP_EVENT_PRM_FINISH, FR_OK);
         }
     }
 }
@@ -533,4 +563,12 @@ static void process_trk_button(void)
 void SysTick_Handler(void)
 {
     uptime_ms++;
+    if(timer > 0)
+    {
+        timer--;
+        if(timer == 0)
+        {
+            flag = 1;
+        }
+    }
 }

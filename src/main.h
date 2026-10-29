@@ -83,6 +83,9 @@ typedef enum {
     APP_EVENT_PLAYING_FR1_FINISH,
     APP_EVENT_PLAYING_FR2_START,
     APP_EVENT_PLAYING_FR2_FINISH,
+    // Окончание FR и Alarm
+    APP_EVENT_ALARM_FR_FINISH,
+
 
     // + и -
     APP_EVENT_VOLUME_UP,

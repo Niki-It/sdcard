@@ -367,7 +367,7 @@ static void process_state_event(app_event_t event, FRESULT error)
     else if(event == APP_EVENT_PLAYING_FR1_FINISH)
     {
 
-        state = PLAYING_FR1;
+        state = IDLE;
     }
 
     // воспроизведение фр2
@@ -379,7 +379,7 @@ static void process_state_event(app_event_t event, FRESULT error)
         else if(event == APP_EVENT_PLAYING_FR2_FINISH)
     {
 
-        state = PLAYING_FR2;
+        state = IDLE;
     }
 
     // прерывание alarm , fr1, fr2
@@ -389,49 +389,6 @@ static void process_state_event(app_event_t event, FRESULT error)
     }
 
 }
-
-// Переодическое обслуживание текущего состояния
-static void process_state_logic(void)
-{
-    switch (state) {
-        case IDLE:
-            break;
-
-        case NOTIFICATION:
-            break;
-
-        case BROADCAST:
-            break;
-
-        case PRM:
-            break;
-
-        case FIRE:
-            // TODO
-            break;
-
-        case RECORDING_FR1:
-            // TODO:
-            break;
-
-        case RECORDING_FR2:
-            // TODO
-            break;
-
-        case ALARM:
-            // TODO
-            break;
-
-        case PLAYING_FR1:
-            // TODO
-            break;
-
-        case PLAYING_FR2:
-            // TODO
-            break;
-    }
-}
-
 // Изменение громкости
 static int process_common_event(app_event_t event)
 {
@@ -478,6 +435,48 @@ static int process_common_event(app_event_t event)
     }
 }
 
+// Переодическое обслуживание текущего состояния
+static void process_state_logic(void)
+{
+    switch (state) {
+        case IDLE:
+            break;
+
+        case NOTIFICATION:
+            break;
+
+        case BROADCAST:
+            break;
+
+        case PRM:
+            break;
+
+        case FIRE:
+            // TODO
+            break;
+
+        case RECORDING_FR1:
+            // TODO:
+            break;
+
+        case RECORDING_FR2:
+            // TODO
+            break;
+
+        case ALARM:
+            // TODO
+            break;
+
+        case PLAYING_FR1:
+            // TODO
+            break;
+
+        case PLAYING_FR2:
+            // TODO
+            break;
+    }
+}
+
 // Сухой контакт ППК
 static void process_achtung_button(void)
 {
@@ -493,9 +492,13 @@ static void process_achtung_button(void)
     previous_state = current_state;
 
     if (current_state == 0U) {
-        process_state_event(APP_EVENT_FIRE_START, FR_OK);
+        if (state == IDLE) {
+            process_state_event(APP_EVENT_FIRE_START, FR_OK);
+        }
     } else {
-        process_state_event(APP_EVENT_FIRE_FINISH, FR_OK);
+        if (state == FIRE) {
+            process_state_event(APP_EVENT_FIRE_FINISH, FR_OK);
+        }
     }
 }
 
@@ -512,9 +515,13 @@ static void process_trk_button(void)
     previous_state = current_state;
 
     if (current_state == 0U) {
-        process_state_event(APP_EVENT_PRM_START, FR_OK);
+        if (state == IDLE) {
+            process_state_event(APP_EVENT_FIRE_START, FR_OK);
+        }
     } else {
-        process_state_event(APP_EVENT_PRM_FINISH, FR_OK);
+        if (state == FIRE) {
+            process_state_event(APP_EVENT_FIRE_FINISH, FR_OK);
+        }
     }
 }
 

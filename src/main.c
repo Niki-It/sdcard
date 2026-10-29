@@ -289,11 +289,13 @@ static void process_state_event(app_event_t event, FRESULT error)
     // Оповещение
     if(event == APP_EVENT_NOTIFICATION_START)
     {
+        start_bypass();
         printf("NOTIFICATION START\n");
         state = NOTIFICATION;
     }
     else if(event == APP_EVENT_NOTIFICATION_FINISH)
     {
+        stop_bypass();
         printf("NOTIFICATION FINISH\n");
         state = IDLE;
     }
@@ -301,11 +303,13 @@ static void process_state_event(app_event_t event, FRESULT error)
     // Передача
     else if(event == APP_EVENT_BROADCAST_START)
     {
+        start_bypass();
         printf("BROADCAST START\n");
         state = BROADCAST;
     }
     else if(event == APP_EVENT_BROADCAST_FINISH)
     {
+        stop_bypass();
         printf("BROADCAST FINISH\n");
         state = IDLE;
     }
@@ -313,11 +317,15 @@ static void process_state_event(app_event_t event, FRESULT error)
     // Прием
     else if(event == APP_EVENT_PRM_START)
     {
+        switch_mux(SIG_TRK);
+        start_bypass();
         printf("PRIEM START\n");
         state = PRM;
     }
     else if(event == APP_EVENT_PRM_FINISH)
     {
+        switch_mux(SIG_PLT1);
+        stop_bypass();
         printf("PRIEM FINISH\n");
         state = IDLE;
     }
@@ -570,5 +578,100 @@ void SysTick_Handler(void)
         {
             flag = 1;
         }
+    }
+}
+// ------------------------ ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ СТЕЙТ МАШИНЫ --------------------
+static void start_bypass(void)
+{
+    mute_amplifiers();
+
+    aic3104_soft_reset();
+    aic3104_init_clocking();
+    aic3104_line1lp_hprout_bypass();
+
+    unmute_amplifiers();
+}
+static void stop_bypass(void)
+{
+    mute_amplifiers();
+}
+
+static FRESULT start_recording(const char* path)
+{
+    mute_amplifiers();
+
+    aic3104_soft_reset();
+    aic3104_init_clocking();
+    aic3104_line1lp_i2s();
+
+    FRESULT result = wav_recording_start(path);
+
+    if (result == FR_OK) {
+        printf("WAV recording started\n");
+    } else {
+        printf("WAV recording start error: %d\n", (int)result);
+    }
+
+    return result;
+}
+
+static void stop_recording(FRESULT error)
+{
+    FRESULT result = wav_recording_end();
+
+    mute_amplifiers();
+
+    if(error == FR_OK)
+    {
+        printf( "WAV recording finished: %d\n", (int)result);
+        return;
+    }
+    printf
+    (
+        "WAV write error: %d, end: %d\n",
+        (int)error, (int)result
+    );
+}
+
+
+/* ============================================================================
+ * Действия режима воспроизведения
+ * ========================================================================== */
+
+static FRESULT start_playback(const char* path)
+{
+    mute_amplifiers();
+
+    aic3104_soft_reset();
+    aic3104_init_clocking();
+    aic3104_i2s_hprout();
+
+    FRESULT result;
+    result = audio_playback_start(
+        path, AUDIO_FORMAT_MP3
+    );
+
+    if (result == FR_OK) {
+        unmute_amplifiers();
+        printf("WAV playback started\n");
+    } else {
+        printf("WAV playback start error: %d\n", (int)result);
+    }
+
+    return result;
+}
+
+/*
+ * При штатном завершении и ошибке воспроизведение уже остановлено
+ * внутри audio_playback_task().
+ */
+static void finish_playback(FRESULT error)
+{
+    mute_amplifiers();
+
+    if (error != FR_OK) {
+        printf("WAV playback error: %d\n", (int)error);
+    } else {
+        printf("WAV playback finished\n");
     }
 }

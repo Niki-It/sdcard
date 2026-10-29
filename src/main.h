@@ -119,3 +119,7 @@ static void process_state_logic(void);
 
 /* Проверка события отдельной кнопки в комбинации. */
 static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event);
+
+// ------------------------ ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ СТЕЙТ МАШИНЫ --------------------
+static void start_bypass(void);
+static void stop_bypass(void);

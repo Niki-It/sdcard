@@ -34,6 +34,7 @@
 #include "memory.h"
 #include "storage/tinyusb_serve.h"
 #include "count_bits_table.h"
+#include "amp.h"
 
 // Состояния
 typedef enum {
@@ -75,10 +76,13 @@ typedef enum {
 
     // Тревога
     APP_EVENT_ALARM_START,
+    APP_EVENT_ALARM_FINISH,
+
     // Воспроизведение
     APP_EVENT_PLAYING_FR1_START,
+    APP_EVENT_PLAYING_FR1_FINISH,
     APP_EVENT_PLAYING_FR2_START,
-    APP_EVENT_ALARM_PLAYING_FINISH,
+    APP_EVENT_PLAYING_FR2_FINISH,
 
     // + и -
     APP_EVENT_VOLUME_UP,
@@ -105,26 +109,6 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
 static void process_achtung_button(void);
 static void process_trk_button(void);
 
-/* Управление усилителями. */
-static void mute_amplifiers(void);
-static void unmute_amplifiers(void);
-
-/* Запуск и завершение режимов. */
-static FRESULT start_recording(void);
-static void stop_recording(app_event_t reason, FRESULT error);
-
-static FRESULT start_playback(void);
-static void finish_playback(app_event_t reason, FRESULT error);
-
-static void start_bypass(void);
-static void stop_bypass(void);
-
-static void start_trk(void);
-static void stop_trk(void);
-
-static void interrupt_mode(app_state_t previous_state);
-static void app_playback_abort();
-
 /* Обработка событий и обслуживание текущего состояния. */
 static int process_common_event(app_event_t event);
 static void process_state_event(app_event_t event, FRESULT error);
@@ -132,13 +116,3 @@ static void process_state_logic(void);
 
 /* Проверка события отдельной кнопки в комбинации. */
 static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event);
-
-
-typedef enum 
-{
-    GGC = 0,
-    APB = 1,
-    OPER = 2
-} RelayMode;
-static void swich_relay(RelayMode mode);
-

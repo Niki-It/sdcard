@@ -1,15 +1,4 @@
-#include "stm32f4xx.h"
 #include "gpio.h"
-#include "stm32f4xx_ll_gpio.h"
-
-#include "aic3104.h"
-#include "mux.h"
-#include "led_controller/led_raw.h"
-
-#define CODEC_I2C_PORT       GPIOB
-#define CODEC_I2C_SCL_PIN    LL_GPIO_PIN_10
-#define CODEC_I2C_SDA_PIN    LL_GPIO_PIN_11
-#define CODEC_I2C_GPIO_AF    LL_GPIO_AF_4
 
 void I2C2_GPIO_Init(void)
 {

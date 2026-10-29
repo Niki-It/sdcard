@@ -1,5 +1,6 @@
 set(SOURCES
     "app/aic3104.c"
+    "app/amp.c"
     "app/button_combo.c"
     "app/circular/ring.c"
     "app/count_bits_table.c"

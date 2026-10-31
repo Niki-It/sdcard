@@ -1,6 +1,7 @@
 set(SOURCES
     "app/aic3104.c"
     "app/amp.c"
+    "app/announce.c"
     "app/button_combo.c"
     "app/circular/ring.c"
     "app/count_bits_table.c"
@@ -16,7 +17,6 @@ set(SOURCES
     "app/media/wav_encoder.c"
     "app/memory_print/memory_print.c"
     "app/mux.c"
-    "app/parse.c"
     "app/perf_counter/perf_counter.c"
     "app/sdio/sdio.c"
     "app/sdio/sdio_ll.c"

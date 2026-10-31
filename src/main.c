@@ -43,9 +43,11 @@ volatile uint32_t uptime_ms = 0;
 
 static app_state_t state = IDLE;
 sd_card_info_t card_info;
-#define TIMEOUT 5000
-volatile uint32_t timer = 0;
-volatile uint8_t flag = 0;
+
+// нужно для announce
+static audio_file_t next_file;
+// файл который проигрывается 
+static const char *playing_filename = NULL;
 
 /* ============================================================================
  * Основная логика
@@ -62,7 +64,6 @@ int main(void)
     debounce_init(debounced_pins, DEBOUNCE_INPUT_COUNT, DEBOUNCE_PERIOD_MS);
 
     mute_amplifiers();
-    set_leds(LED_VD1 | LED_VD2 | LED_VD3 | LED_VD4 | LED_VD5, true);
 
     while (1)
     {
@@ -116,20 +117,21 @@ void periph_init(void)
 /* ============================================================================
  * Стейт машина
  * ========================================================================== */
-// Поиск кнопки в комбинации
-static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event)
-{
-    return (mask & (1U << button)) != 0U && events[button] == event;
-}
-
 // Преобразование комбинации в событие
 void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT])
 {
+    // Регулировка громкости
+    if(combo_has(buttons_mask, events, 6, SHORT_EVENT))
+    {
+        process_common_event(APP_EVENT_VOLUME_UP);
+    }
+    if(combo_has(buttons_mask, events, 7, SHORT_EVENT))
+    {
+        process_common_event(APP_EVENT_VOLUME_DOWN);
+    }
     // Оповещение
     if (state == IDLE && combo_has(buttons_mask, events, 1, LONG_EVENT) && count_bits(buttons_mask) == 1) 
     {
-        swich_relay(GGC);
-        switch_mux(SIG_PLT1);
         process_state_event(APP_EVENT_NOTIFICATION_START, FR_OK);
         return;
     }
@@ -142,8 +144,6 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
     // Передача
     if (state == IDLE && combo_has(buttons_mask, events, 3, LONG_EVENT) && count_bits(buttons_mask) == 1) 
     {
-        swich_relay(APB);
-        switch_mux(SIG_PLT1);
         process_state_event(APP_EVENT_BROADCAST_START, FR_OK);
         return;
     }
@@ -156,8 +156,6 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
     // Прием
     if (state == IDLE && combo_has(buttons_mask, events, 5, LONG_EVENT) && count_bits(buttons_mask) == 1) 
     {
-        swich_relay(OPER);
-        switch_mux(SIG_TRK);
         process_state_event(APP_EVENT_PRM_START, FR_OK);
         return;
     }
@@ -170,7 +168,6 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
     // Запись фразы 1
     if (state == IDLE && combo_has(buttons_mask, events, 2, LONG_EVENT) && count_bits(buttons_mask) == 1) 
     {
-        switch_mux(SIG_PLT1);
         process_state_event(APP_EVENT_FR1_RECORD_START, FR_OK);
         return;
     }
@@ -183,7 +180,6 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
     // Запись фразы 2
     if (state == IDLE && combo_has(buttons_mask, events, 4, LONG_EVENT) && count_bits(buttons_mask) == 1) 
     {
-        switch_mux(SIG_PLT1);
         process_state_event(APP_EVENT_FR2_RECORD_START, FR_OK);
         return;
     }
@@ -199,18 +195,24 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
         if(combo_has(buttons_mask,events, 1, SHORT_EVENT))
         {
             swich_relay(GGC);
+            set_all_leds(LED_VD1 | LED_VD2 | get_leds(LED_VD7 | LED_VD8));
+
             process_state_event(APP_EVENT_ALARM_START, FR_OK);
             return;
         }
         if(combo_has(buttons_mask,events, 3, SHORT_EVENT))
         {
             swich_relay(APB);
+            set_all_leds(LED_VD1 | LED_VD4 | get_leds(LED_VD7 | LED_VD8));
+
             process_state_event(APP_EVENT_ALARM_START, FR_OK);
             return;
         }
         if(combo_has(buttons_mask,events, 5, SHORT_EVENT))
         {
             swich_relay(OPER);
+            set_all_leds(LED_VD1 | LED_VD6 | get_leds(LED_VD7 | LED_VD8));
+
             process_state_event(APP_EVENT_ALARM_START, FR_OK);
             return;
         }
@@ -222,18 +224,24 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
         if(combo_has(buttons_mask,events, 1, SHORT_EVENT))
         {
             swich_relay(GGC);
+            set_all_leds(LED_VD3 | LED_VD2 | get_leds(LED_VD7 | LED_VD8));
+
             process_state_event(APP_EVENT_PLAYING_FR1_START, FR_OK);
             return;
         }
         if(combo_has(buttons_mask,events, 3, SHORT_EVENT))
         {
             swich_relay(APB);
+            set_all_leds(LED_VD3 | LED_VD4 | get_leds(LED_VD7 | LED_VD8));
+
             process_state_event(APP_EVENT_PLAYING_FR1_START, FR_OK);
             return;
         }
         if(combo_has(buttons_mask,events, 5, SHORT_EVENT))
         {
             swich_relay(OPER);
+            set_all_leds(LED_VD3 | LED_VD6 | get_leds(LED_VD7 | LED_VD8));
+
             process_state_event(APP_EVENT_PLAYING_FR1_START, FR_OK);
             return;
         }
@@ -245,18 +253,23 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
         if(combo_has(buttons_mask,events, 1, SHORT_EVENT))
         {
             swich_relay(GGC);
+            set_all_leds(LED_VD5 | LED_VD2 | get_leds(LED_VD7 | LED_VD8));
             process_state_event(APP_EVENT_PLAYING_FR2_START, FR_OK);
             return;
         }
         if(combo_has(buttons_mask,events, 3, SHORT_EVENT))
         {
             swich_relay(APB);
+            set_all_leds(LED_VD5 | LED_VD4 | get_leds(LED_VD7 | LED_VD8));
+
             process_state_event(APP_EVENT_PLAYING_FR2_START, FR_OK);
             return;
         }
         if(combo_has(buttons_mask,events, 5, SHORT_EVENT))
         {
             swich_relay(OPER);
+            set_all_leds(LED_VD5 | LED_VD6 | get_leds(LED_VD7 | LED_VD8));
+
             process_state_event(APP_EVENT_PLAYING_FR2_START, FR_OK);
             return;
         }
@@ -270,17 +283,7 @@ void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]
         return;
     }
 
-    // Регулировка громкости
-    if(state == IDLE && combo_has(buttons_mask, events, 6, SHORT_EVENT) && count_bits(buttons_mask) == 1)
-    {
-        process_common_event(APP_EVENT_VOLUME_UP);
-        return;
-    }
-    if(state == IDLE && combo_has(buttons_mask, events, 7, SHORT_EVENT) && count_bits(buttons_mask) == 1)
-    {
-        process_common_event(APP_EVENT_VOLUME_DOWN);
-        return;
-    }
+    
 }
 
 // Обработка переходов между состояниями
@@ -289,13 +292,17 @@ static void process_state_event(app_event_t event, FRESULT error)
     // Оповещение
     if(event == APP_EVENT_NOTIFICATION_START)
     {
+        swich_relay(GGC);
+        switch_active_remote_mux();
         start_bypass();
+        set_all_leds(LED_VD2 | LED_VD9 | get_leds(LED_VD7 | LED_VD8));
         printf("NOTIFICATION START\n");
         state = NOTIFICATION;
     }
     else if(event == APP_EVENT_NOTIFICATION_FINISH)
     {
         stop_bypass();
+        set_all_leds(get_leds(LED_VD7 | LED_VD8));
         printf("NOTIFICATION FINISH\n");
         state = IDLE;
     }
@@ -303,7 +310,10 @@ static void process_state_event(app_event_t event, FRESULT error)
     // Передача
     else if(event == APP_EVENT_BROADCAST_START)
     {
+        swich_relay(APB);
+        switch_active_remote_mux();
         start_bypass();
+        set_all_leds(LED_VD4 | LED_VD9 | get_leds(LED_VD7 | LED_VD8));
         printf("BROADCAST START\n");
         state = BROADCAST;
     }
@@ -311,6 +321,7 @@ static void process_state_event(app_event_t event, FRESULT error)
     {
         stop_bypass();
         printf("BROADCAST FINISH\n");
+        set_all_leds(get_leds(LED_VD7 | LED_VD8));
         state = IDLE;
     }
 
@@ -318,99 +329,230 @@ static void process_state_event(app_event_t event, FRESULT error)
     else if(event == APP_EVENT_PRM_START)
     {
         switch_mux(SIG_TRK);
+        swich_relay(OPER);
         start_bypass();
+        set_all_leds(LED_VD6 | LED_VD9 | get_leds(LED_VD7 | LED_VD8));
         printf("PRIEM START\n");
         state = PRM;
     }
     else if(event == APP_EVENT_PRM_FINISH)
     {
-        switch_mux(SIG_PLT1);
+        switch_active_remote_mux();
+        swich_relay(GGC);
         stop_bypass();
+        set_all_leds(get_leds(LED_VD7 | LED_VD8));
         printf("PRIEM FINISH\n");
-        state = IDLE;
-    }
-
-    // Речевое пожарное 
-    else if(event == APP_EVENT_FIRE_START)
-    {
-        printf("FIRE START\n");
-        state = FIRE;
-    }
-    else if(event == APP_EVENT_FIRE_FINISH)
-    {
-        printf("FIRE FINISH\n");
         state = IDLE;
     }
 
     // Запись FR1
     else if(event == APP_EVENT_FR1_RECORD_START)
     {
-        printf("FR1 RECORDING START\n");
-        state = RECORDING_FR1;
+        if(!usb_stop(uptime_ms))
+        {
+            return;
+        }
+        switch_active_remote_mux();
+        FRESULT result = start_recording("frase1.wav");
+
+        if (result == FR_OK) {
+            printf("FR1 RECORDING START\n");
+            state = RECORDING_FR1;
+            set_all_leds(LED_VD3 | get_leds(LED_VD7 | LED_VD8));
+        }
+        else {
+            printf("FR1 RECORDING ERROR: %d\n", (int)result);
+            state = IDLE;
+        }
     }
     else if(event == APP_EVENT_FR1_RECORD_FINISH)
     {
+        stop_recording(error);
+
         printf("FR1 RECORDING FINISH\n");
+        set_all_leds(get_leds(LED_VD7 | LED_VD8));
         state = IDLE;
     }
 
     // Запись FR2
-    else if(event == APP_EVENT_FR2_RECORD_START)
+    else if (event == APP_EVENT_FR2_RECORD_START)
     {
-        printf("FR2 RECORDING START\n");
-        state = RECORDING_FR2;
+        if(!usb_stop(uptime_ms))
+        {
+            return;
+        }
+        switch_active_remote_mux();
+
+        FRESULT result = start_recording("frase2.wav");
+
+        if (result == FR_OK) {
+            printf("FR2 RECORDING START\n");
+            state = RECORDING_FR2;
+            set_all_leds(LED_VD5 | get_leds(LED_VD7 | LED_VD8));
+        }
+        else {
+            printf("FR2 RECORDING ERROR: %d\n", (int)result);
+            state = IDLE;
+        }
     }
-    else if(event == APP_EVENT_FR2_RECORD_FINISH)
+    else if (event == APP_EVENT_FR2_RECORD_FINISH)
     {
+        stop_recording(error);
+
         printf("FR2 RECORDING FINISH\n");
+        set_all_leds(get_leds(LED_VD7 | LED_VD8));
+
+        state = IDLE;
+    }
+    else if (event == APP_EVENT_FR1_RECORD_ERROR)
+    {
+        printf("FR1 RECORDING ERROR: %d\n", (int)error);
+
+        stop_recording(error);
+
+        f_unlink("frase1.wav");
+
+        set_all_leds(get_leds(LED_VD7 | LED_VD8));
         state = IDLE;
     }
 
-    // Тревога
-    else if(event == APP_EVENT_ALARM_START)
+    // Ошибка записи FR2
+    else if (event == APP_EVENT_FR2_RECORD_ERROR)
     {
-        printf("ALARM START\n");
-        timer = TIMEOUT;
-        state = ALARM;
-    }
-    else if(event == APP_EVENT_ALARM_FINISH)
-    {
-        printf("ALARM FINISH\n");
+        printf("FR2 RECORDING ERROR: %d\n", (int)error);
+
+        stop_recording(error);
+
+        f_unlink("frase2.wav");
+        set_all_leds(get_leds(LED_VD7 | LED_VD8));
         state = IDLE;
     }
 
-    // воспроизведение фр1
-    else if(event == APP_EVENT_PLAYING_FR1_START)
+    // Воспроизведение FR1
+    else if (event == APP_EVENT_PLAYING_FR1_START)
     {
-        printf("FR1 PLAYING START\n");
-        timer = TIMEOUT;
+        next_file.delay = 0;
+        if (!usb_stop(uptime_ms))
+            return;
+
+        reset_announce();
         state = PLAYING_FR1;
+        printf("FR1 PLAYING START\n");
+        play_next_announce();
     }
-    else if(event == APP_EVENT_PLAYING_FR1_FINISH)
+    else if (event == APP_EVENT_PLAYING_FR1_FINISH)
     {
+        finish_playback(FR_OK);
+
+        reset_announce();
         printf("FR1 PLAYING FINISH\n");
         state = IDLE;
     }
 
-    // воспроизведение фр2
-    else if(event == APP_EVENT_PLAYING_FR2_START)
+    // Воспроизведение FR2
+
+    else if (event == APP_EVENT_PLAYING_FR2_START)
     {
-        printf("FR2 PLAYING START\n");
-        timer = TIMEOUT;
+        next_file.delay = 0;
+        if (!usb_stop(uptime_ms))
+            return;
+
+        reset_announce();
         state = PLAYING_FR2;
+        printf("FR2 PLAYING START\n");
+        play_next_announce();
     }
-    else if(event == APP_EVENT_PLAYING_FR2_FINISH)
+    else if (event == APP_EVENT_PLAYING_FR2_FINISH)
     {
+        finish_playback(FR_OK);
+        reset_announce();
         printf("FR2 PLAYING FINISH\n");
         state = IDLE;
     }
 
-    // прерывание alarm , fr1, fr2
-    else if(event == APP_EVENT_ALARM_FR_FINISH)
+    // Общая ошибка воспроизведения
+    // FIRE, ALARM, FR1, FR2
+    else if (event == APP_EVENT_PLAYBACK_ERROR)
     {
+        printf("PLAYBACK ERROR: %s, code: %d\n",
+            playing_filename ? playing_filename : "unknown",
+            (int)error);
+
+        finish_playback(error);
+
+        playing_filename = NULL;
+        reset_announce();
+        set_all_leds(get_leds(LED_VD7 | LED_VD8));
+        state = IDLE;
+    }
+
+    // Речевое пожарное
+    else if (event == APP_EVENT_FIRE_START)
+    {
+        if(!usb_stop(uptime_ms))
+        {
+            return;
+        }
+        swich_relay(GGC);
+        FRESULT result = start_playback("fire.mp3");
+
+        if (result == FR_OK) {
+            printf("FIRE START\n");
+            set_all_leds(LED_VD1 | LED_VD2 | LED_VD3 | LED_VD4 | LED_VD5 | LED_VD6  | get_leds(LED_VD7 | LED_VD8));
+
+            state = FIRE;
+        } else {
+            process_state_event(APP_EVENT_PLAYBACK_ERROR, result);
+        }
+    }
+    else if (event == APP_EVENT_FIRE_FINISH)
+    {
+        if (audio_playback_is_active()) {
+            app_playback_abort();
+        } else {
+            finish_playback(FR_OK);
+        }
+
+        printf("FIRE FINISH\n");
+        set_all_leds(get_leds(LED_VD7 | LED_VD8));
+        state = IDLE;
+    }
+
+    // Тревога
+    else if (event == APP_EVENT_ALARM_START)
+    {
+        if(!usb_stop(uptime_ms))
+        {
+            return;
+        }
+        FRESULT result = start_playback("alarm.mp3");
+
+        if (result == FR_OK) {
+            printf("ALARM START\n");
+
+            state = ALARM;
+        } else {
+            process_state_event(APP_EVENT_PLAYBACK_ERROR, result);
+        }
+    }
+    else if (event == APP_EVENT_ALARM_FINISH)
+    {
+        finish_playback(FR_OK);
+
+        printf("ALARM FINISH\n");
+        set_all_leds(get_leds(LED_VD7 | LED_VD8));
+
+        state = IDLE;
+    }
+
+    // Принудительная остановка ALARM, FR1, FR2
+    else if (event == APP_EVENT_ALARM_FR_FINISH)
+    {
+        app_playback_abort();
+
         printf("ALARM AND FR STOPPED\n");
-        timer = 0;
-        flag = 0;
+        reset_announce();
+        set_all_leds(get_leds(LED_VD7 | LED_VD8));
         state = IDLE;
     }
 
@@ -477,41 +619,81 @@ static void process_state_logic(void)
         case PRM:
             break;
 
-        case FIRE:
-            // TODO
-            break;
-
         case RECORDING_FR1:
-            // TODO:
+            FRESULT result = wav_recording_task();
+
+            if (result != FR_OK) {
+                process_state_event(APP_EVENT_FR1_RECORD_ERROR,result);
+            }
             break;
 
         case RECORDING_FR2:
-            // TODO
+            FRESULT result2 = wav_recording_task();
+
+            if (result2 != FR_OK) {
+                process_state_event(APP_EVENT_FR2_RECORD_ERROR,result2);
+            }
+            break;
             break;
 
+        case FIRE:
+        {
+            FRESULT result = audio_playback_task();
+
+            if (result != FR_OK) {
+                process_state_event(APP_EVENT_PLAYBACK_ERROR, result);
+            }
+            else if (!audio_playback_is_active()) {
+                playback_file_finished();
+                process_state_event(APP_EVENT_FIRE_START, FR_OK);
+            }
+
+            break;
+        }
         case ALARM:
-            if(flag == 1)
-            {
-                process_state_event(APP_EVENT_ALARM_FINISH, FR_OK);
-                flag = 0;
-            }
-            break;
+        {
+            FRESULT result = audio_playback_task();
 
+            if (result != FR_OK) {
+                process_state_event(APP_EVENT_PLAYBACK_ERROR, result);
+            }
+            else if (!audio_playback_is_active()) {
+                playback_file_finished();
+                process_state_event(APP_EVENT_ALARM_START, FR_OK);
+            }
+
+            break;
+        }
         case PLAYING_FR1:
-            if(flag == 1)
-            {
-                process_state_event(APP_EVENT_PLAYING_FR1_FINISH, FR_OK);
-                flag = 0;
-            }
-            break;
-
         case PLAYING_FR2:
-            if(flag == 1)
+        {
+            if (announce_delay_active())
             {
-                process_state_event(APP_EVENT_PLAYING_FR2_FINISH, FR_OK);
-                flag = 0;
+                if (check_announce_delay(uptime_ms))
+                {
+                    FRESULT result = start_playback(next_file.pathfile);
+
+                    if (result != FR_OK) {
+                        process_state_event(APP_EVENT_PLAYBACK_ERROR, result);
+                    }
+                }
+
+                break;
             }
+
+            FRESULT result = audio_playback_task();
+
+            if (result != FR_OK) {
+                process_state_event(APP_EVENT_PLAYBACK_ERROR, result);
+            }
+            else if (!audio_playback_is_active()) 
+            {
+                playback_file_finished();
+                play_next_announce();
+            }
+
             break;
+        }   
     }
 }
 
@@ -571,14 +753,6 @@ static void process_trk_button(void)
 void SysTick_Handler(void)
 {
     uptime_ms++;
-    if(timer > 0)
-    {
-        timer--;
-        if(timer == 0)
-        {
-            flag = 1;
-        }
-    }
 }
 // ------------------------ ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ СТЕЙТ МАШИНЫ --------------------
 static void start_bypass(void)
@@ -638,7 +812,7 @@ static void stop_recording(FRESULT error)
  * Действия режима воспроизведения
  * ========================================================================== */
 
-static FRESULT start_playback(const char* path)
+static FRESULT start_playback(const char *path)
 {
     mute_amplifiers();
 
@@ -646,19 +820,23 @@ static FRESULT start_playback(const char* path)
     aic3104_init_clocking();
     aic3104_i2s_hprout();
 
-    FRESULT result;
-    result = audio_playback_start(
-        path, AUDIO_FORMAT_MP3
-    );
+    playing_filename = path;
+
+    FRESULT result = audio_playback_start(path);
 
     if (result == FR_OK) {
         unmute_amplifiers();
-        printf("WAV playback started\n");
-    } else {
-        printf("WAV playback start error: %d\n", (int)result);
+        printf("PLAYBACK START: %s\n", path);
     }
 
     return result;
+}
+static void playback_file_finished(void)
+{
+    if (playing_filename != NULL) {
+        printf("PLAYBACK FINISHED: %s\n", playing_filename);
+        playing_filename = NULL;
+    }
 }
 
 /*
@@ -667,11 +845,56 @@ static FRESULT start_playback(const char* path)
  */
 static void finish_playback(FRESULT error)
 {
+    (void)error;
+    mute_amplifiers();
+}
+static void app_playback_abort(void)
+{
     mute_amplifiers();
 
-    if (error != FR_OK) {
-        printf("WAV playback error: %d\n", (int)error);
-    } else {
-        printf("WAV playback finished\n");
+    if (playing_filename != NULL) {
+        printf("PLAYBACK INTERRUPTED: %s\n", playing_filename);
+    }
+
+    FRESULT result = audio_playback_stop();
+
+    if (result != FR_OK) {
+        printf("PLAYBACK STOP ERROR: %d\n", (int)result);
+    }
+
+    playing_filename = NULL;
+}
+static void play_next_announce(void)
+{
+    bool fr1 = (state == PLAYING_FR1);
+
+    uint16_t delay = next_file.delay;
+
+    next_file = next_announce(
+        fr1 ? "announce1" : "announce2",
+        fr1 ? "frase1.wav" : "frase2.wav"
+    );
+
+    if (!next_file.result)
+    {
+        process_state_event(
+            fr1 ? APP_EVENT_PLAYING_FR1_FINISH
+                : APP_EVENT_PLAYING_FR2_FINISH,
+            FR_OK
+        );
+        return;
+    }
+
+    start_announce_delay(delay, uptime_ms);
+}
+static void switch_active_remote_mux(void)
+{
+    if (led_controller_active_usart() == USART2)
+    {
+        switch_mux(SIG_PLT2);
+    }
+    else
+    {
+        switch_mux(SIG_PLT1);
     }
 }

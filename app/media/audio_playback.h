@@ -28,10 +28,7 @@ typedef enum
  * start открывает файл и подготавливает стратегию.
  * Заполнение кольца выполняется через task.
  */
-FRESULT audio_playback_start(
-    const TCHAR *filename,
-    audio_format_t format
-);
+FRESULT audio_playback_start(const TCHAR *filename);
 
 FRESULT audio_playback_task(void);
 

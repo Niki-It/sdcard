@@ -1,4 +1,5 @@
-
+#include "announce.h"
+#include <stdio.h>
 #include "ff.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -6,16 +7,82 @@
 #include <strings.h>
 #include "stdio.h"
 
-#define AUDIO_PATH_MAX       320
-#define AUDIO_FILENAME_LEN   12
+static uint16_t number = 1;
 
-typedef struct
+static audio_file_t find_audio_file(const char *folder, uint8_t number);
+audio_file_t next_announce(
+    const char *folder,
+    const char *fallback
+)
 {
-    bool result;
-    char pathfile[AUDIO_PATH_MAX];
-    uint16_t delay;
-} audio_file_t;
+    audio_file_t file = {0};
 
+    if (number == 0 || number > 255)
+        return file;
+
+    file = find_audio_file(folder, (uint8_t)number);
+
+    if (file.result) {
+        number++;
+        return file;
+    }
+
+    if (number == 1) {
+        file.result = true;
+        file.delay = 0;
+        snprintf(file.pathfile, sizeof(file.pathfile),
+                 "%s", fallback);
+    }
+
+    // После fallback или отсутствующего файла
+    // последовательность закончена
+    number = 0;
+
+    return file;
+}
+
+static uint32_t delay_start = 0;
+static uint32_t delay_ms = 0;
+static bool delay_active = false;
+
+void reset_announce(void)
+{
+    number = 1;
+
+    delay_start = 0;
+    delay_ms = 0;
+    delay_active = false;
+}
+// ------------------- Реализация задержки после воспроизведения ---------------
+
+void start_announce_delay(uint32_t seconds, uint32_t uptime_ms)
+{
+    delay_start = uptime_ms;
+    delay_ms = seconds * 1000U;
+    delay_active = true;
+}
+
+bool check_announce_delay(uint32_t uptime_ms)
+{
+    if (!delay_active)
+        return false;
+
+    if ((uint32_t)(uptime_ms - delay_start) < delay_ms)
+        return false;
+
+    delay_start = 0;
+    delay_ms = 0;
+    delay_active = false;
+
+    return true;
+}
+
+bool announce_delay_active(void)
+{
+    return delay_active;
+}
+
+// --------------------- Вспомогательные функции для поиска файла с порядковым номером ---------------------
 static bool parse_audio_filename(const char *filename, uint8_t number, uint16_t *delay)
 {
     if (strlen(filename) != AUDIO_FILENAME_LEN)
@@ -73,7 +140,7 @@ static bool parse_audio_filename(const char *filename, uint8_t number, uint16_t 
     return true;
 }
 
-audio_file_t find_audio_file(const char *folder, uint8_t number)
+static audio_file_t find_audio_file(const char *folder, uint8_t number)
 {
     audio_file_t result = {0};
 

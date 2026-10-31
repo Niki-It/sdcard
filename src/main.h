@@ -35,6 +35,7 @@
 #include "storage/tinyusb_serve.h"
 #include "count_bits_table.h"
 #include "amp.h"
+#include "announce.h"
 
 // Состояния
 typedef enum {
@@ -70,8 +71,11 @@ typedef enum {
 
     // Запись ФР1, ФР2
     APP_EVENT_FR1_RECORD_START,
+    APP_EVENT_FR1_RECORD_ERROR,
     APP_EVENT_FR1_RECORD_FINISH,
+
     APP_EVENT_FR2_RECORD_START,
+    APP_EVENT_FR2_RECORD_ERROR,
     APP_EVENT_FR2_RECORD_FINISH,
 
     // Тревога
@@ -85,8 +89,7 @@ typedef enum {
     APP_EVENT_PLAYING_FR2_FINISH,
     // Окончание FR и Alarm
     APP_EVENT_ALARM_FR_FINISH,
-
-
+    APP_EVENT_PLAYBACK_ERROR,
     // + и -
     APP_EVENT_VOLUME_UP,
     APP_EVENT_VOLUME_DOWN,
@@ -117,9 +120,16 @@ static int process_common_event(app_event_t event);
 static void process_state_event(app_event_t event, FRESULT error);
 static void process_state_logic(void);
 
-/* Проверка события отдельной кнопки в комбинации. */
-static int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event);
 
 // ------------------------ ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ СТЕЙТ МАШИНЫ --------------------
 static void start_bypass(void);
 static void stop_bypass(void);
+
+static FRESULT start_recording(const char* path);
+static void stop_recording(FRESULT error);
+static void app_playback_abort(void);
+static FRESULT start_playback(const char* path);
+static void finish_playback(FRESULT error);
+static void play_next_announce(void);
+static void playback_file_finished(void);
+static void switch_active_remote_mux(void);

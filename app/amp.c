@@ -14,7 +14,7 @@ void swich_relay(RelayMode mode)
             LL_GPIO_ResetOutputPin(AMP_PORT, OPR_PIN);
             break;
         case OPER:
-            LL_GPIO_SetOutputPin(AMP_PORT, APB_PIN);
+            LL_GPIO_ResetOutputPin(AMP_PORT, APB_PIN);
             LL_GPIO_SetOutputPin(AMP_PORT, OPR_PIN);
             break;
         default:

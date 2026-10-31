@@ -24,6 +24,11 @@ static LedEvent prev_button_states[BUTTON_COMBO_COUNT] = {NO_EVENT};
 // Вспомогательные функции
 // ============================================================================
 
+// Поиск кнопки в комбинации
+int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event)
+{
+    return (mask & (1U << button)) != 0U && events[button] == event;
+}
 static inline void add_to_combo(uint8_t btn_idx, LedEvent state)
 {
     active_buttons_mask |= (uint8_t)(1U << btn_idx);
@@ -74,20 +79,20 @@ static void emit_combo(uint32_t now_ms)
 __attribute__((weak))
 void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT])
 {
-    SEGGER_RTT_printf(0, "=== start ===\r\n");
+    printf("=== start ===\r\n");
 
     for (uint8_t i = 0; i < BUTTON_COMBO_COUNT; i++)
     {
         if (buttons_mask & (1U << i))
         {
-            SEGGER_RTT_printf(0, "VD%u: %u\r\n",
+            printf("VD%u: %u\r\n",
                 (unsigned)(i + 1U),
                 (unsigned)events[i]
             );
         }
     }
 
-    SEGGER_RTT_printf(0, "=== end ===\r\n");
+    printf("=== end ===\r\n");
 }
 
 // ============================================================================

@@ -1,189 +1,210 @@
-#include "stddef.h"
-#include <string.h>
+#include <stddef.h>
+#include <stdbool.h>
+#include <stdio.h>
+
 #include "led_raw.h"
-#include "stdbool.h"
+
 #include <stm32f405xx.h>
 #include <stm32f4xx_ll_gpio.h>
-
 #include <stm32f4xx_ll_bus.h>
 #include <stm32f4xx_ll_usart.h>
 #include <stm32f4xx_ll_tim.h>
 
-#define RESPONSE_LENGTH 4
+#define RESPONSE_LENGTH      4U
+#define REMOTE_COUNT          2U
+#define LED_REMOTE_BAUDRATE  38400U
+#define RECOVERY_PADDING_BYTE 0xFFU
 
-RawResponce raw_response;
-volatile uint8_t is_response_ready;
-static volatile bool response_rx_enabled = false;
-volatile uint32_t rx_counter = 0;
-
-uint8_t responce_idx = 0;
-volatile uint8_t echo_skip = 0;
-
-void inc_frame_number();
-volatile uint8_t frame_number = 0;
-
-
-// -------------------- Core логика -----------------------
-static void send_sync(USART_TypeDef *USARTx, const uint8_t* raw, uint8_t len);
-void send_command_sync(USART_TypeDef *USARTx, SetLedStateCommand cmd)
+typedef struct
 {
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
+    RawResponce response;
+    volatile uint8_t response_ready;
+    volatile uint8_t rx_enabled;
+    volatile uint8_t response_idx;
+    volatile uint32_t rx_counter;
 
-    if (response_rx_enabled || is_response_ready)
+    volatile uint32_t rx_bytes;
+    volatile uint32_t packets;
+    volatile uint32_t ore_errors;
+    volatile uint32_t fe_errors;
+    volatile uint32_t ne_errors;
+} LedRawContext;
+
+static LedRawContext raw_contexts[REMOTE_COUNT];
+
+static inline LedRawContext *get_raw_context(USART_TypeDef *USARTx)
+{
+    if (USARTx == USART2)
     {
-        __set_PRIMASK(primask);
-
-        return;
+        return &raw_contexts[0];
     }
 
-    responce_idx = 0;
-    echo_skip = 3;
-    response_rx_enabled = true;
+    if (USARTx == UART4)
+    {
+        return &raw_contexts[1];
+    }
 
-    __set_PRIMASK(primask);
-
-    send_sync(USARTx, cmd.data, 3);
+    return NULL;
 }
 
-void process_rx_byte(uint8_t byte)
+static void send_sync(USART_TypeDef *USARTx, const uint8_t *raw, uint8_t len)
 {
-    if (!response_rx_enabled || is_response_ready)
+    for (uint8_t i = 0; i < len; i++)
     {
-        return;
-    }
-
-    raw_response.data[responce_idx] = byte;
-
-    responce_idx++;
-    rx_counter++;
-    // команда принята полностью
-    if (responce_idx == RESPONSE_LENGTH)
-    {
-        response_rx_enabled = false;
-        is_response_ready = 1;
-    }
-}
-
-// ----------------- Работа с периферией ------------------
-
-void send_sync(USART_TypeDef *USARTx, const uint8_t* raw, uint8_t len)
-{
-    if (raw == NULL || len == 0) {
-        return;
-    }
-
-    // при полудуплексной передаче байты приходят обратно
-    echo_skip = len;
-
-    for (uint16_t i = 0; i < len; i++)
-    {
-        while (!LL_USART_IsActiveFlag_TXE(USARTx)){}
+        while (!LL_USART_IsActiveFlag_TXE(USARTx)) {}
 
         LL_USART_TransmitData8(USARTx, raw[i]);
     }
 
-    while (!LL_USART_IsActiveFlag_TC(USARTx)){}
+    while (!LL_USART_IsActiveFlag_TC(USARTx)) {}
 
     LL_USART_ClearFlag_TC(USARTx);
 }
 
+static void send_command_internal(USART_TypeDef *USARTx, SetLedStateCommand cmd, bool add_padding)
+{
+    LedRawContext *context = get_raw_context(USARTx);
+
+    if (context == NULL || context->rx_enabled || context->response_ready)
+    {
+        return;
+    }
+
+    uint8_t tx_buffer[4];
+    uint8_t tx_length = 3U;
+
+    const uint8_t *tx_data = cmd.data;
+
+    if (add_padding)
+    {
+        tx_buffer[0] = RECOVERY_PADDING_BYTE;
+        tx_buffer[1] = cmd.data[0];
+        tx_buffer[2] = cmd.data[1];
+        tx_buffer[3] = cmd.data[2];
+
+        tx_data = tx_buffer;
+        tx_length = 4U;
+    }
+
+    context->rx_enabled = 0U;
+    context->response_idx = 0U;
+
+    LL_USART_SetTransferDirection(USARTx, LL_USART_DIRECTION_TX);
+
+    send_sync(USARTx, tx_data, tx_length);
+
+    context->rx_enabled = 1U;
+    LL_USART_SetTransferDirection(USARTx, LL_USART_DIRECTION_RX);
+}
+
+void send_command_sync(USART_TypeDef *USARTx, SetLedStateCommand cmd)
+{
+    send_command_internal(USARTx, cmd, false);
+}
+
+void send_command_sync_padded(USART_TypeDef *USARTx, SetLedStateCommand cmd)
+{
+    send_command_internal(USARTx, cmd, true);
+}
+
+static inline void process_rx_byte(LedRawContext *context, uint8_t byte)
+{
+    if (!context->rx_enabled || context->response_ready)
+    {
+        return;
+    }
+
+    context->response.data[context->response_idx] = byte;
+    context->response_idx++;
+    context->rx_counter++;
+
+    if (context->response_idx == RESPONSE_LENGTH)
+    {
+        context->packets++;
+        context->rx_enabled = 0U;
+        context->response_ready = 1U;
+    }
+}
+
+static inline void process_usart_irq(USART_TypeDef *USARTx, LedRawContext *context)
+{
+    uint8_t ore = LL_USART_IsActiveFlag_ORE(USARTx);
+    uint8_t fe = LL_USART_IsActiveFlag_FE(USARTx);
+    uint8_t ne = LL_USART_IsActiveFlag_NE(USARTx);
+
+    if (ore)
+    {
+        context->ore_errors++;
+    }
+
+    if (fe)
+    {
+        context->fe_errors++;
+    }
+
+    if (ne)
+    {
+        context->ne_errors++;
+    }
+
+    if (LL_USART_IsActiveFlag_RXNE(USARTx))
+    {
+        uint8_t byte = LL_USART_ReceiveData8(USARTx);
+
+        context->rx_bytes++;
+
+        process_rx_byte(context, byte);
+    }
+    else if (ore || fe || ne)
+    {
+        LL_USART_ClearFlag_ORE(USARTx);
+    }
+}
 
 void usart2_handler(void)
 {
-    if (LL_USART_IsActiveFlag_RXNE(USART2))
-    {
-        uint8_t byte = LL_USART_ReceiveData8(USART2);
-
-        if (echo_skip > 0)
-        {
-            echo_skip--;
-            return; 
-        }
-        process_rx_byte(byte);
-    }
-
-    if (LL_USART_IsActiveFlag_ORE(USART2))
-    {
-        printf("ore flag set\n");
-        LL_USART_ClearFlag_ORE(USART2);
-    }
-
-}
-void uart4_handler()
-{
-    if (LL_USART_IsActiveFlag_RXNE(UART4))
-    {
-        uint8_t byte = LL_USART_ReceiveData8(UART4);
-
-        if (echo_skip > 0)
-        {
-            echo_skip--;
-            return; 
-        }
-        process_rx_byte(byte);
-    }
-
-    if (LL_USART_IsActiveFlag_ORE(UART4))
-    {
-        printf("ore flag set\n");
-        LL_USART_ClearFlag_ORE(UART4);
-    }
+    process_usart_irq(USART2, &raw_contexts[0]);
 }
 
-void inc_frame_number()
+void uart4_handler(void)
 {
-    frame_number++;
-    if (frame_number > 3) 
-    {
-        frame_number = 0;
-    }
+    process_usart_irq(UART4, &raw_contexts[1]);
 }
 
-bool led_raw_take_response(RawResponce *response)
+bool led_raw_take_response(USART_TypeDef *USARTx, RawResponce *response)
 {
-    if (response == NULL)
+    LedRawContext *context = get_raw_context(USARTx);
+
+    if (context == NULL || response == NULL || !context->response_ready)
     {
         return false;
     }
 
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
+    /* При response_ready == 1 приём этого канала уже остановлен в ISR. */
+    *response = context->response;
 
-    if (!is_response_ready)
-    {
-        __set_PRIMASK(primask);
-
-        return false;
-    }
-
-    *response = raw_response;
-
-    response_rx_enabled = false;
-    is_response_ready = 0;
-    responce_idx = 0;
-    echo_skip = 0;
-
-    __set_PRIMASK(primask);
+    context->response_ready = 0U;
+    context->response_idx = 0U;
 
     return true;
 }
 
-void led_raw_cancel_response(void)
+void led_raw_cancel_response(USART_TypeDef *USARTx)
 {
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
+    LedRawContext *context = get_raw_context(USARTx);
 
-    response_rx_enabled = false;
-    is_response_ready = 0;
-    responce_idx = 0;
-    echo_skip = 0;
+    if (context == NULL)
+    {
+        return;
+    }
 
-    __set_PRIMASK(primask);
+    context->rx_enabled = 0U;
+    context->response_ready = 0U;
+    context->response_idx = 0U;
 }
 
 // ------------------ Инициализация периферии ---------------------------
-void led_controller_nvic_init()
+void led_controller_nvic_init(void)
 {
     NVIC_SetPriority(USART2_IRQn, 1);
     NVIC_EnableIRQ(USART2_IRQn);
@@ -191,12 +212,12 @@ void led_controller_nvic_init()
     NVIC_SetPriority(UART4_IRQn, 1);
     NVIC_EnableIRQ(UART4_IRQn);
 
-    //WARNING!! Значение должно бытьпрерывания TIM6 больше (ниже) чем у USART2(4)
+    // Приоритет TIM6 должен быть ниже приоритета USART2 и UART4.
     NVIC_SetPriority(TIM6_DAC_IRQn, 2);
     NVIC_EnableIRQ(TIM6_DAC_IRQn);
 }
 
-void led_controller_gpio_init()
+void led_controller_gpio_init(void)
 {
     // Настроить PA2(TX) - USART2 для режима half duplex
     {
@@ -204,9 +225,9 @@ void led_controller_gpio_init()
         
         GPIO_InitStruct.Pin = LL_GPIO_PIN_2;
         GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
-        GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-        GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_HIGH;
-        GPIO_InitStruct.Pull = LL_GPIO_PULL_UP;    
+        GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_OPENDRAIN;
+        GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+        GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_HIGH;   
         GPIO_InitStruct.Alternate = LL_GPIO_AF_7;   
         
         LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -217,9 +238,9 @@ void led_controller_gpio_init()
         
         GPIO_InitStruct.Pin = LL_GPIO_PIN_0;
         GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
-        GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+        GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_OPENDRAIN;
         GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_HIGH;
-        GPIO_InitStruct.Pull = LL_GPIO_PULL_UP;       
+        GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;     
         GPIO_InitStruct.Alternate = LL_GPIO_AF_8;    
         
         LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -231,11 +252,11 @@ void led_controller_usart_init(void)
     // Настроить USART2 - в режиме half duplex
     {
         LL_USART_InitTypeDef usart_2 = {0};
-        usart_2.BaudRate            = 38400;
+        usart_2.BaudRate            = LED_REMOTE_BAUDRATE;
         usart_2.DataWidth           = LL_USART_DATAWIDTH_8B; 
         usart_2.StopBits            = LL_USART_STOPBITS_1;
         usart_2.Parity              = LL_USART_PARITY_NONE; 
-        usart_2.TransferDirection   = LL_USART_DIRECTION_TX_RX; 
+        usart_2.TransferDirection = LL_USART_DIRECTION_RX; 
         usart_2.HardwareFlowControl = LL_USART_HWCONTROL_NONE;
         usart_2.OverSampling        = LL_USART_OVERSAMPLING_16;
 
@@ -249,11 +270,11 @@ void led_controller_usart_init(void)
     // Настроить UART4 - в режиме half duplex
     {
         LL_USART_InitTypeDef usart_4 = {0};
-        usart_4.BaudRate            = 38400;
+        usart_4.BaudRate            = LED_REMOTE_BAUDRATE;
         usart_4.DataWidth           = LL_USART_DATAWIDTH_8B; 
         usart_4.StopBits            = LL_USART_STOPBITS_1;
         usart_4.Parity              = LL_USART_PARITY_NONE; 
-        usart_4.TransferDirection   = LL_USART_DIRECTION_TX_RX;
+        usart_4.TransferDirection   = LL_USART_DIRECTION_RX;
         usart_4.HardwareFlowControl = LL_USART_HWCONTROL_NONE;
         usart_4.OverSampling        = LL_USART_OVERSAMPLING_16;
 
@@ -289,4 +310,25 @@ void TIM6_Init(void)
     LL_TIM_EnableIT_UPDATE(TIM6);
 
     LL_TIM_EnableCounter(TIM6);
+}
+void led_raw_get_diagnostics(USART_TypeDef *USARTx, LedRawDiagnostics *diagnostics)
+{
+    if (diagnostics == NULL)
+    {
+        return;
+    }
+
+    LedRawContext *context = get_raw_context(USARTx);
+
+    if (context == NULL)
+    {
+        *diagnostics = (LedRawDiagnostics){0};
+        return;
+    }
+
+    diagnostics->rx_bytes = context->rx_bytes;
+    diagnostics->packets = context->packets;
+    diagnostics->ore_errors = context->ore_errors;
+    diagnostics->fe_errors = context->fe_errors;
+    diagnostics->ne_errors = context->ne_errors;
 }

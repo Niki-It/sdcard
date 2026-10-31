@@ -31,6 +31,7 @@ void mux_select(uint8_t mux_number, mux_channel_t channel) {
     }
 }
 
-void switch_mux(mux_mode_t mode) {
+void switch_mux(mux_mode_t mode) 
+{
     mux_select(2, mode);
 }

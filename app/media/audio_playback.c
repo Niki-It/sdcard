@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include "stdio.h"
 
 #include "stm32f4xx.h"
 
@@ -367,10 +368,7 @@ static FRESULT start_output(bool end)
 }
 
 
-FRESULT audio_playback_start(
-    const TCHAR *filename,
-    audio_format_t format
-)
+FRESULT audio_playback_start(const TCHAR *filename)
 {
     if (audio_playback_is_active() ||
         playback.file_open ||
@@ -385,9 +383,19 @@ FRESULT audio_playback_start(
         return FR_INVALID_NAME;
     }
 
-    if (format != AUDIO_FORMAT_WAV &&
-        format != AUDIO_FORMAT_MP3)
-    {
+    const char *ext = strrchr(filename, '.');
+
+    if (ext == NULL) {
+        return FR_INVALID_NAME;
+    }
+
+    if (strcmp(ext, ".wav") == 0) {
+        playback.format = AUDIO_FORMAT_WAV;
+    }
+    else if (strcmp(ext, ".mp3") == 0) {
+        playback.format = AUDIO_FORMAT_MP3;
+    }
+    else {
         return FR_INVALID_PARAMETER;
     }
 
@@ -398,7 +406,6 @@ FRESULT audio_playback_start(
         return FR_INVALID_PARAMETER;
     }
 
-    playback.format = format;
     playback.state = AUDIO_PLAYBACK_IDLE;
     playback.error = FR_OK;
 

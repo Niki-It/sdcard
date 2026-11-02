@@ -12,4 +12,4 @@ int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t b
 
 
 // Weak-функция, которую можно переопределить в другом .c файле
-void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]);
+void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]);

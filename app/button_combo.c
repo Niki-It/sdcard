@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "stdio.h"
+#include "count_bits_table.h"
 
 #include "SEGGER_RTT.h"
 #include "button_combo.h"
@@ -69,7 +70,7 @@ static void emit_combo(uint32_t now_ms)
         return;
     }
 
-    flush_combo(active_buttons_mask, combo_events);
+    flush_combo(count_bits(active_buttons_mask), active_buttons_mask, combo_events);
 }
 
 // ============================================================================
@@ -77,7 +78,7 @@ static void emit_combo(uint32_t now_ms)
 // ============================================================================
 
 __attribute__((weak))
-void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT])
+void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT])
 {
     printf("=== start ===\r\n");
 

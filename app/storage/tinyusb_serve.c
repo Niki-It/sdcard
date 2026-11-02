@@ -1,7 +1,6 @@
-#include "tinyusb_serve.h"
-#include <string.h>
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 #include "SEGGER_RTT.h"
 #include "stdio.h"
 
@@ -274,59 +273,6 @@ bool tud_msc_start_stop_cb
     }
 
     return true;
-}
-
-#define USB_RECONNECT_DELAY_MS 200U
-
-static uint32_t usb_stopped_ms = 0;
-static bool usb_disconnected = false;
-
-bool usb_stop(uint32_t now_ms)
-{
-    if (!tud_inited())
-    {
-        return false;
-    }
-
-    if (usb_disconnected)
-    {
-        return true;
-    }
-
-    tud_disconnect();
-
-    usb_disconnected = true;
-    usb_stopped_ms = now_ms;
-
-    //printf("USB DISCONNECTED\r\n");
-
-    return true;
-}
-
-void process_usb(bool idle, uint32_t now_ms)
-{
-    if (!idle || !tud_inited())
-    {
-        return;
-    }
-
-    if (usb_disconnected)
-    {
-        if ((uint32_t)(now_ms - usb_stopped_ms) <
-            USB_RECONNECT_DELAY_MS)
-        {
-            return;
-        }
-
-        ejected = false;
-
-        tud_connect();
-        usb_disconnected = false;
-
-        //printf("USB RECONNECTED\r\n");
-    }
-
-    tud_task();
 }
 
 void tud_mount_cb(void)

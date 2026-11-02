@@ -32,8 +32,6 @@
 #include "stdbool.h"
 #include "stdio.h"
 #include "memory.h"
-#include "storage/tinyusb_serve.h"
-#include "count_bits_table.h"
 #include "amp.h"
 #include "announce.h"
 
@@ -110,26 +108,24 @@ int main(void);
 void periph_init(void);
 void SysTick_Handler(void);
 
-void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]);
+/* Стейт машина */
+void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]);
+static void process_state_event(app_event_t event);
+static void process_state_logic(void);
 
+// Внешние сигналы
 static void process_achtung_button(void);
 static void process_trk_button(void);
 
-/* Обработка событий и обслуживание текущего состояния. */
-static int process_common_event(app_event_t event);
-static void process_state_event(app_event_t event, FRESULT error);
-static void process_state_logic(void);
-
-
 // ------------------------ ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ СТЕЙТ МАШИНЫ --------------------
-static void start_bypass(void);
-static void stop_bypass(void);
+// static void start_bypass(void);
+// static void stop_bypass(void);
 
-static FRESULT start_recording(const char* path);
-static void stop_recording(FRESULT error);
-static void app_playback_abort(void);
-static FRESULT start_playback(const char* path);
-static void finish_playback(FRESULT error);
-static void play_next_announce(void);
-static void playback_file_finished(void);
-static void switch_active_remote_mux(void);
+// static FRESULT start_recording(const char* path);
+// static void stop_recording(FRESULT error);
+// static void app_playback_abort(void);
+// static FRESULT start_playback(const char* path);
+// static void finish_playback(FRESULT error);
+// static void play_next_announce(void);
+// static void playback_file_finished(void);
+// static void switch_active_remote_mux(void);

@@ -110,7 +110,7 @@ int main(void);
 void periph_init(void);
 void SysTick_Handler(void);
 
-void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]);
+void flush_combo(uint8_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT]);
 
 static void process_achtung_button(void);
 static void process_trk_button(void);

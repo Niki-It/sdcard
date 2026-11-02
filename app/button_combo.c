@@ -17,26 +17,26 @@ static uint8_t active_buttons_mask = 0;
 
 static uint32_t combo_start_ms = 0;
 
-static LedEvent combo_events[BUTTON_COMBO_COUNT] = {NO_EVENT};
-static LedEvent prev_button_states[BUTTON_COMBO_COUNT] = {NO_EVENT};
+static ButtonEvent combo_events[BUTTON_COMBO_COUNT] = {NO_EVENT};
+static ButtonEvent prev_button_states[BUTTON_COMBO_COUNT] = {NO_EVENT};
 
 // ============================================================================
 // Вспомогательные функции
 // ============================================================================
 
 // Поиск кнопки в комбинации
-int combo_has(uint8_t mask, const LedEvent events[BUTTON_COMBO_COUNT], uint8_t button, LedEvent event)
+int combo_has(uint8_t mask, const ButtonEvent events[BUTTON_COMBO_COUNT], uint8_t button, ButtonEvent event)
 {
     return (mask & (1U << button)) != 0U && events[button] == event;
 }
-static inline void add_to_combo(uint8_t btn_idx, LedEvent state)
+static inline void add_to_combo(uint8_t btn_idx, ButtonEvent state)
 {
     active_buttons_mask |= (uint8_t)(1U << btn_idx);
     combo_events[btn_idx] = state;
 }
 
 // Добавляет все кнопки, находящиеся в LONG_EVENT.
-static void add_active_long_buttons(const LedEvent *buttons[])
+static void add_active_long_buttons(const ButtonEvent *buttons[])
 {
     for (uint8_t i = 0; i < BUTTON_COMBO_COUNT; i++)
     {
@@ -77,7 +77,7 @@ static void emit_combo(uint32_t now_ms)
 // ============================================================================
 
 __attribute__((weak))
-void flush_combo(uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT])
+void flush_combo(uint8_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT])
 {
     printf("=== start ===\r\n");
 
@@ -133,15 +133,17 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
     }
 
     // Порядок строго соответствует VD1..VD8.
-    const LedEvent *btn_ptr[BUTTON_COMBO_COUNT] = {
-        &status->VD1,
-        &status->VD2,
-        &status->VD3,
-        &status->VD4,
-        &status->VD5,
-        &status->VD6,
-        &status->VD7,
-        &status->VD8
+    const ButtonEvent *btn_ptr[BUTTON_COMBO_COUNT] = {
+        &status->S1,
+        &status->S2,
+        &status->S3,
+        &status->S4,
+        &status->S5,
+        &status->S6,
+        &status->S7,
+        &status->S8,
+        &status->S9,
+        &status->S10
     };
 
     // ========================================================================
@@ -152,8 +154,8 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
 
     for (uint8_t i = 0; i < BUTTON_COMBO_COUNT; i++)
     {
-        LedEvent prev = prev_button_states[i];
-        LedEvent curr = *btn_ptr[i];
+        ButtonEvent prev = prev_button_states[i];
+        ButtonEvent curr = *btn_ptr[i];
 
         // Начало события: NO_EVENT -> любое другое.
         // Отпускание после LONG_EVENT: LONG_EVENT -> NO_EVENT.

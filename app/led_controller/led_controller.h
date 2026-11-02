@@ -15,6 +15,8 @@ typedef struct
     bool VD7;
     bool VD8;
     bool VD9;
+    bool VD10;
+    bool VD11;
 } Leds;
 
 typedef struct
@@ -33,18 +35,20 @@ typedef enum
     SHORT_EVENT,
     DOUBLE_SHORT,
     LONG_EVENT
-} LedEvent;
+} ButtonEvent;
 
 typedef struct
 {
-    LedEvent VD1;
-    LedEvent VD2;
-    LedEvent VD3;
-    LedEvent VD4;
-    LedEvent VD5;
-    LedEvent VD6;
-    LedEvent VD7;
-    LedEvent VD8;
+    ButtonEvent S1;
+    ButtonEvent S2;
+    ButtonEvent S3;
+    ButtonEvent S4;
+    ButtonEvent S5;
+    ButtonEvent S6;
+    ButtonEvent S7;
+    ButtonEvent S8;
+    ButtonEvent S9;
+    ButtonEvent S10;
 } ButtonEvents;
 
 #define LED_VD1  (1U << 0)
@@ -56,21 +60,26 @@ typedef struct
 #define LED_VD7  (1U << 6)
 #define LED_VD8  (1U << 7)
 #define LED_VD9  (1U << 8)
+#define LED_VD10 (1U << 9)
+#define LED_VD11 (1U << 10)
 
-#define LED_ALL  ((1U << 9) - 1U)
+#define LED_ALL ((1U << 11) - 1U)
 
 typedef struct
 {
-    // 1 - есть новое состояние кнопок, 0 - нет.
     uint8_t ready;
-    LedEvent VD1;
-    LedEvent VD2;
-    LedEvent VD3;
-    LedEvent VD4;
-    LedEvent VD5;
-    LedEvent VD6;
-    LedEvent VD7;
-    LedEvent VD8;
+    USART_TypeDef *active_remote;
+
+    ButtonEvent S1;
+    ButtonEvent S2;
+    ButtonEvent S3;
+    ButtonEvent S4;
+    ButtonEvent S5;
+    ButtonEvent S6;
+    ButtonEvent S7;
+    ButtonEvent S8;
+    ButtonEvent S9;
+    ButtonEvent S10;
 } ButtonStatus;
 
 ButtonStatus poll_button_events(void);
@@ -90,7 +99,7 @@ void LedController_PeriphInit(void);
 
 typedef enum
 {
-    VD1, VD2, VD3, VD4, VD5, VD6, VD7, VD8, VD9,
+    VD1, VD2, VD3, VD4, VD5, VD6, VD7, VD8, VD9, VD10, VD11,
     LED_BLINKING_COUNT
 } blinking_led_t;
 

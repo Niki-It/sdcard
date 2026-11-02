@@ -117,7 +117,7 @@ void periph_init(void)
  * Стейт машина
  * ========================================================================== */
 // Преобразование комбинации в событие
-void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT])
+void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT])
 {
     
 }

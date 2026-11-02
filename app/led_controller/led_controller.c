@@ -82,7 +82,8 @@ static inline uint16_t leds_to_mask(Leds leds)
         (leds.VD3 ? LED_VD3 : 0U) | (leds.VD4 ? LED_VD4 : 0U) |
         (leds.VD5 ? LED_VD5 : 0U) | (leds.VD6 ? LED_VD6 : 0U) |
         (leds.VD7 ? LED_VD7 : 0U) | (leds.VD8 ? LED_VD8 : 0U) |
-        (leds.VD9 ? LED_VD9 : 0U));
+        (leds.VD9 ? LED_VD9 : 0U)) | (leds.VD10 ? LED_VD10 : 0U)
+        | (leds.VD11 ? LED_VD11 : 0U);
 }
 
 static inline void stop_blinking(uint16_t mask)
@@ -172,10 +173,14 @@ static inline SetLedStateCommand formSetLedStateCommand(uint8_t frame_number)
 {
     SetLedStateCommand command = {{0}};
 
-    command.data[0] = (uint8_t)((frame_number & 0x03U) |
-                                ((led_state & LED_VD9) >> 6));
+    // формирование 1 байта запроса
+    command.data[0] = (uint8_t)(
+        (frame_number & 0x03U) |
+        ((led_state >> 4) & 0x70U)
+    );
+
     command.data[1] = (uint8_t)(led_state & 0xFFU);
-    command.data[2] = crc(command.data, 2);
+    command.data[2] = crc(command.data, 2U);
 
     return command;
 }
@@ -194,20 +199,23 @@ void send_SetLedState(USART_TypeDef *USARTx)
 
 static inline void write_events(LedControllerContext *controller, RawResponce response)
 {
-    uint32_t data = (uint32_t)response.data[1] |
-                    ((uint32_t)response.data[2] << 8);
+    uint32_t data = (uint32_t)response.data[2] |
+                    ((uint32_t)response.data[1] << 8) |
+                    ((uint32_t)((response.data[0] >> 3) & 0x0FU) << 16);
 
-    controller->button_events.VD1 = (LedEvent)((data >> 0) & 0x03U);
-    controller->button_events.VD2 = (LedEvent)((data >> 2) & 0x03U);
-    controller->button_events.VD3 = (LedEvent)((data >> 4) & 0x03U);
-    controller->button_events.VD4 = (LedEvent)((data >> 6) & 0x03U);
-    controller->button_events.VD5 = (LedEvent)((data >> 8) & 0x03U);
-    controller->button_events.VD6 = (LedEvent)((data >> 10) & 0x03U);
-    controller->button_events.VD7 = (LedEvent)((data >> 12) & 0x03U);
-    controller->button_events.VD8 = (LedEvent)((data >> 14) & 0x03U);
+    controller->button_events.S1  = (ButtonEvent)((data >> 0) & 0x03U);
+    controller->button_events.S2  = (ButtonEvent)((data >> 2) & 0x03U);
+    controller->button_events.S3  = (ButtonEvent)((data >> 4) & 0x03U);
+    controller->button_events.S4  = (ButtonEvent)((data >> 6) & 0x03U);
+    controller->button_events.S5  = (ButtonEvent)((data >> 8) & 0x03U);
+    controller->button_events.S6  = (ButtonEvent)((data >> 10) & 0x03U);
+    controller->button_events.S7  = (ButtonEvent)((data >> 12) & 0x03U);
+    controller->button_events.S8  = (ButtonEvent)((data >> 14) & 0x03U);
+    controller->button_events.S9  = (ButtonEvent)((data >> 16) & 0x03U);
+    controller->button_events.S10 = (ButtonEvent)((data >> 18) & 0x03U);
 }
 
-static inline ButtonStatus take_button_events(LedControllerContext *controller)
+static inline ButtonStatus take_button_events(LedControllerContext *controller, USART_TypeDef *USARTx)
 {
     ButtonStatus status = {0};
 
@@ -217,27 +225,23 @@ static inline ButtonStatus take_button_events(LedControllerContext *controller)
     }
 
     status.ready = 1U;
-    status.VD1 = controller->button_events.VD1;
-    status.VD2 = controller->button_events.VD2;
-    status.VD3 = controller->button_events.VD3;
-    status.VD4 = controller->button_events.VD4;
-    status.VD5 = controller->button_events.VD5;
-    status.VD6 = controller->button_events.VD6;
-    status.VD7 = controller->button_events.VD7;
-    status.VD8 = controller->button_events.VD8;
+    status.active_remote = USARTx;
+
+    status.S1 = controller->button_events.S1;
+    status.S2 = controller->button_events.S2;
+    status.S3 = controller->button_events.S3;
+    status.S4 = controller->button_events.S4;
+    status.S5 = controller->button_events.S5;
+    status.S6 = controller->button_events.S6;
+    status.S7 = controller->button_events.S7;
+    status.S8 = controller->button_events.S8;
+    status.S9 = controller->button_events.S9;
+    status.S10 = controller->button_events.S10;
 
     controller->frame_number = (uint8_t)((controller->frame_number + 1U) & 0x03U);
     controller->exchange_state = LED_EXCHANGE_IDLE;
 
     return status;
-}
-
-static inline bool has_button_event(const ButtonStatus *status)
-{
-    return status->VD1 != NO_EVENT || status->VD2 != NO_EVENT ||
-           status->VD3 != NO_EVENT || status->VD4 != NO_EVENT ||
-           status->VD5 != NO_EVENT || status->VD6 != NO_EVENT ||
-           status->VD7 != NO_EVENT || status->VD8 != NO_EVENT;
 }
 
 /*
@@ -247,30 +251,16 @@ static inline bool has_button_event(const ButtonStatus *status)
  */
 ButtonStatus poll_button_events(void)
 {
-    ButtonStatus usart2_status = take_button_events(&controllers[0]);
-    ButtonStatus uart4_status = take_button_events(&controllers[1]);
-
-    if (usart2_status.ready && has_button_event(&usart2_status))
+    if (controllers[0].exchange_state == LED_EXCHANGE_EVENTS_PENDING)
     {
         active_remote = USART2;
-        return usart2_status;
+        return take_button_events(&controllers[0], USART2);
     }
 
-    if (uart4_status.ready && has_button_event(&uart4_status))
+    if (controllers[1].exchange_state == LED_EXCHANGE_EVENTS_PENDING)
     {
         active_remote = UART4;
-        return uart4_status;
-    }
-
-    /* NO_EVENT важен для определения отпускания LONG_EVENT. */
-    if (active_remote == USART2 && usart2_status.ready)
-    {
-        return usart2_status;
-    }
-
-    if (active_remote == UART4 && uart4_status.ready)
-    {
-        return uart4_status;
+        return take_button_events(&controllers[1], UART4);
     }
 
     return (ButtonStatus){0};

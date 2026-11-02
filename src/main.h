@@ -109,7 +109,7 @@ void periph_init(void);
 void SysTick_Handler(void);
 
 /* Стейт машина */
-void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const LedEvent events[BUTTON_COMBO_COUNT]);
+void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT]);
 static void process_state_event(app_event_t event);
 static void process_state_logic(void);
 

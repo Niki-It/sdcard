@@ -14,7 +14,7 @@ static uint32_t combo_timeout_ms = 0;
 static uint32_t combo_last_event_ms = 0;
 static uint8_t combo_active = 0;
 
-static uint8_t active_buttons_mask = 0;
+static uint16_t active_buttons_mask = 0;
 
 static uint32_t combo_start_ms = 0;
 
@@ -26,13 +26,13 @@ static ButtonEvent prev_button_states[BUTTON_COMBO_COUNT] = {NO_EVENT};
 // ============================================================================
 
 // Поиск кнопки в комбинации
-int combo_has(uint8_t mask, const ButtonEvent events[BUTTON_COMBO_COUNT], uint8_t button, ButtonEvent event)
+int combo_has(uint16_t mask, const ButtonEvent events[BUTTON_COMBO_COUNT], uint8_t button, ButtonEvent event)
 {
     return (mask & (1U << button)) != 0U && events[button] == event;
 }
 static inline void add_to_combo(uint8_t btn_idx, ButtonEvent state)
 {
-    active_buttons_mask |= (uint8_t)(1U << btn_idx);
+    active_buttons_mask |= (uint16_t)(1U << btn_idx);
     combo_events[btn_idx] = state;
 }
 
@@ -70,7 +70,10 @@ static void emit_combo(uint32_t now_ms)
         return;
     }
 
-    flush_combo(count_bits(active_buttons_mask), active_buttons_mask, combo_events);
+    uint8_t buttons_count = count_bits((uint8_t)active_buttons_mask) +
+                            count_bits((uint8_t)(active_buttons_mask >> 8));
+
+    flush_combo(buttons_count, active_buttons_mask, combo_events);
 }
 
 // ============================================================================
@@ -78,7 +81,7 @@ static void emit_combo(uint32_t now_ms)
 // ============================================================================
 
 __attribute__((weak))
-void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT])
+void flush_combo(uint8_t buttons_count, uint16_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT])
 {
     printf("=== start ===\r\n");
 
@@ -86,7 +89,7 @@ void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const ButtonEvent 
     {
         if (buttons_mask & (1U << i))
         {
-            printf("VD%u: %u\r\n",
+            printf("S%u: %u\r\n",
                 (unsigned)(i + 1U),
                 (unsigned)events[i]
             );
@@ -151,7 +154,7 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
     // 1. Детектирование новых событий
     // ========================================================================
 
-    uint8_t new_events_mask = 0;
+    uint16_t new_events_mask = 0;
 
     for (uint8_t i = 0; i < BUTTON_COMBO_COUNT; i++)
     {
@@ -163,7 +166,7 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
         if ((prev == NO_EVENT && curr != NO_EVENT) ||
             (prev == LONG_EVENT && curr == NO_EVENT))
         {
-            new_events_mask |= (uint8_t)(1U << i);
+            new_events_mask |= (uint16_t)(1U << i);
         }
 
         prev_button_states[i] = curr;
@@ -178,14 +181,14 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
     // 2. Проверка конфликта
     // ========================================================================
 
-    uint8_t overlap = new_events_mask & active_buttons_mask;
+    uint16_t overlap = new_events_mask & active_buttons_mask;
 
     if (overlap != 0U)
     {
         // Повторное событие кнопки из текущей комбинации.
         // Новые неконфликтующие кнопки добавляются в старую комбинацию.
-        uint8_t non_conflicting =
-            new_events_mask & (uint8_t)~active_buttons_mask;
+        uint16_t non_conflicting =
+            new_events_mask & (uint16_t)~active_buttons_mask;
 
         for (uint8_t i = 0; i < BUTTON_COMBO_COUNT; i++)
         {

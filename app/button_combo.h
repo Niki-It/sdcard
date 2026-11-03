@@ -8,8 +8,7 @@
 
 void button_combo_init(uint32_t timeout_ms);
 void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms);
-int combo_has(uint8_t mask, const ButtonEvent events[BUTTON_COMBO_COUNT], uint8_t button, ButtonEvent event);
 
+int combo_has(uint16_t mask, const ButtonEvent events[BUTTON_COMBO_COUNT], uint8_t button, ButtonEvent event);
 
-// Weak-функция, которую можно переопределить в другом .c файле
-void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT]);
+void flush_combo(uint8_t buttons_count, uint16_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT]);

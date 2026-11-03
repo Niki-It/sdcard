@@ -79,7 +79,7 @@ int main(void)
         process_button_combinations(&button_status, uptime_ms);
         blinking_process(uptime_ms);
         process_state_logic();
-        //tud_task();
+        tud_task();
     }
 }
 
@@ -119,7 +119,7 @@ void periph_init(void)
  * Стейт машина
  * ========================================================================== */
 // Преобразование комбинации в событие
-void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT])
+void flush_combo(uint8_t buttons_count, uint16_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT])
 {
     printf("combo received - %u, count - %u\n", buttons_mask, buttons_count);
 }

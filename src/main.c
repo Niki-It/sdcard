@@ -119,9 +119,9 @@ void periph_init(void)
  * Стейт машина
  * ========================================================================== */
 // Преобразование комбинации в событие
-void flush_combo(uint8_t buttons_count, uint16_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT])
+void flush_combo(FlushContext context)
 {
-    printf("combo received - %u, count - %u\n", buttons_mask, buttons_count);
+    printf("combo received - %u, count - %u\n", context.mask, context.count);
 }
 
 // Обработка переходов между состояниями

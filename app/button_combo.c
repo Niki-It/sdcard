@@ -25,11 +25,6 @@ static ButtonEvent prev_button_states[BUTTON_COMBO_COUNT] = {NO_EVENT};
 // Вспомогательные функции
 // ============================================================================
 
-// Поиск кнопки в комбинации
-int combo_has(uint16_t mask, const ButtonEvent events[BUTTON_COMBO_COUNT], uint8_t button, ButtonEvent event)
-{
-    return (mask & (1U << button)) != 0U && events[button] == event;
-}
 static inline void add_to_combo(uint8_t btn_idx, ButtonEvent state)
 {
     active_buttons_mask |= (uint16_t)(1U << btn_idx);
@@ -63,41 +58,29 @@ static void reset_combo(void)
 }
 
 // Выдача накопленной комбинации.
-static void emit_combo(uint32_t now_ms)
+static void emit_combo(void)
 {
     if (!combo_active || active_buttons_mask == 0U)
     {
         return;
     }
 
-    uint8_t buttons_count = count_bits((uint8_t)active_buttons_mask) +
-                            count_bits((uint8_t)(active_buttons_mask >> 8));
+    FlushContext context = {
+        .count = count_bits((uint8_t)active_buttons_mask) +
+                 count_bits((uint8_t)(active_buttons_mask >> 8)),
+        .mask = active_buttons_mask,
+    };
+    memcpy(context.events, combo_events, sizeof(context.events));
 
-    flush_combo(buttons_count, active_buttons_mask, combo_events);
+    flush_combo(context);
 }
-
 // ============================================================================
 // Weak-обработчик комбинации по умолчанию
 // ============================================================================
 
 __attribute__((weak))
-void flush_combo(uint8_t buttons_count, uint16_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT])
-{
-    printf("=== start ===\r\n");
-
-    for (uint8_t i = 0; i < BUTTON_COMBO_COUNT; i++)
-    {
-        if (buttons_mask & (1U << i))
-        {
-            printf("S%u: %u\r\n",
-                (unsigned)(i + 1U),
-                (unsigned)events[i]
-            );
-        }
-    }
-
-    printf("=== end ===\r\n");
-}
+void flush_combo(FlushContext context)
+{}
 
 // ============================================================================
 // Инициализация
@@ -127,7 +110,7 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
     if (combo_active &&
         (uint32_t)(uptime_ms - combo_last_event_ms) >= combo_timeout_ms)
     {
-        emit_combo(uptime_ms);
+        emit_combo();
         reset_combo();
     }
 
@@ -198,7 +181,7 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
             }
         }
 
-        emit_combo(uptime_ms);
+        emit_combo();
         reset_combo();
 
         // Начало новой комбинации.
@@ -245,7 +228,7 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
 
     if (combo_timeout_ms == 0U)
     {
-        emit_combo(uptime_ms);
+        emit_combo();
         reset_combo();
     }
 }

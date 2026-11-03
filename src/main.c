@@ -62,6 +62,7 @@ int main(void)
     aic3104_init();
     i2s_dma_init();
     debounce_init(debounced_pins, DEBOUNCE_INPUT_COUNT, DEBOUNCE_PERIOD_MS);
+    set_all_leds(LED_VD1);
 
     mute_amplifiers();
 
@@ -78,6 +79,7 @@ int main(void)
         process_button_combinations(&button_status, uptime_ms);
         blinking_process(uptime_ms);
         process_state_logic();
+        //tud_task();
     }
 }
 
@@ -119,7 +121,7 @@ void periph_init(void)
 // Преобразование комбинации в событие
 void flush_combo(uint8_t buttons_count, uint8_t buttons_mask, const ButtonEvent events[BUTTON_COMBO_COUNT])
 {
-    
+    printf("combo received - %u, count - %u\n", buttons_mask, buttons_count);
 }
 
 // Обработка переходов между состояниями

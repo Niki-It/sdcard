@@ -406,6 +406,11 @@ static inline void process_controller(USART_TypeDef *USARTx, LedControllerContex
 
         if (controller->recovery_attempts % LED_RECOVERY_LOG_PERIOD == 0U)
         {
+            // FIXME: удалить, когда будет 2 пульта
+            if(USARTx == UART4)
+            {
+                return;
+            }
             LedRawDiagnostics diagnostics;
 
             led_raw_get_diagnostics(USARTx, &diagnostics);

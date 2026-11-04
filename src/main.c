@@ -122,24 +122,55 @@ void periph_init(void)
 void flush_combo(FlushContext context)
 {
     if (context.count == 2 &&
-        context_has(context, B_GGS, LONG_EVENT) &&
+        context_has(context, B_GGS1, LONG_EVENT) &&
         context_has(context, B_PRD, SHORT_EVENT))
     {
         if (context.source == REMOTE_1)
         {
             printf("Combination from REMOTE_1\r\n");
+            return;
         }
         else if (context.source == REMOTE_2)
         {
             printf("Combination from REMOTE_2\r\n");
+            return;
         }
+
     }
 }
 
 // Обработка переходов между состояниями
 static void process_state_event(app_event_t event, source_t source)
 {
+    // switch (event)
+    // {
+    //     case APP_EVENT_FIRE_START && source == OUTSOURCE:
+    //         /* code */
+    //         break;
     
+    //     default:
+    //         break;
+    // }
+    if(event == APP_EVENT_FIRE_START && source == OUTSOURCE)
+    {
+        state = FIRE;
+        printf("fire outsource\n");
+    }
+    if(event == APP_EVENT_FIRE_FINISH && source == OUTSOURCE)
+    {
+        printf("fire outsource finish\n");
+        state = IDLE;
+    }
+    if(event == APP_EVENT_PRM_START && source == OUTSOURCE)
+    {
+        state = PRM;
+        printf("prm outsource\n");
+    }
+    if(event == APP_EVENT_PRM_FINISH && source == OUTSOURCE)
+    {
+        state = IDLE;
+        printf("prm outsource finish\n");
+    }
 }
 
 // Переодическое обслуживание текущего состояния

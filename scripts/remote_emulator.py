@@ -112,6 +112,7 @@ class EventState:
                 self.oneshot = [NO_EVENT] * 10
 
 
+
 def serial_worker(state: EventState, updates: queue.Queue, stop: threading.Event) -> None:
     while not stop.is_set():
         try:
@@ -127,8 +128,8 @@ def serial_worker(state: EventState, updates: queue.Queue, stop: threading.Event
                 updates.put((True, f"Подключено: {PORT} · {BAUDRATE} · 8N1"))
 
                 rx = bytearray()
-                echo = bytearray()
-                echo_deadline = 0.0
+                echo = b""
+                echo_probe = bytearray()
 
                 while not stop.is_set():
                     incoming = port.read(1)
@@ -136,23 +137,32 @@ def serial_worker(state: EventState, updates: queue.Queue, stop: threading.Event
                     if not incoming:
                         continue
 
-                    byte = incoming[0]
-
-                    # Игнорирование собственного эха TX
+                    # Проверяем, является ли принятый байт частью эха.
                     if echo:
-                        if time.monotonic() > echo_deadline:
-                            echo.clear()
-                        elif byte == echo[0]:
-                            del echo[0]
-                            continue
+                        echo_probe.extend(incoming)
+
+                        if echo.startswith(echo_probe):
+                            if len(echo_probe) == len(echo):
+                                echo = b""
+                                echo_probe.clear()
+                            else:
+                                continue
                         else:
-                            echo.clear()
+                            # Это не эхо. Возвращаем накопленные
+                            # байты в обычный обработчик запросов.
+                            rx.extend(echo_probe)
+                            echo = b""
+                            echo_probe.clear()
+                    else:
+                        rx.extend(incoming)
 
-                    state.add_rx_bytes(1)
-                    rx.append(byte)
-
-                    while len(rx) >= 3:
+                    while not echo and len(rx) >= 3:
                         request = bytes(rx[:3])
+
+                        # Биты 2 и 3 первого байта запроса не используются.
+                        if request[0] & 0x0C:
+                            del rx[0]
+                            continue
 
                         if crc8(request[:2]) != request[2]:
                             del rx[0]
@@ -160,25 +170,29 @@ def serial_worker(state: EventState, updates: queue.Queue, stop: threading.Event
 
                         del rx[:3]
 
+                        # Игнорируем 00 00 00.
                         if request == b"\x00\x00\x00":
                             continue
+
+                        state.add_rx_bytes(3)
 
                         events, version = state.snapshot()
                         response = make_response(request, events)
 
+                        # Запоминаем ожидаемое эхо до отправки.
+                        echo = response
+                        echo_probe.clear()
+
                         port.write(response)
-
-                        # Запоминаем отправленные байты,
-                        # чтобы не принимать их как новый запрос.
-                        echo = bytearray(response)
-                        echo_deadline = time.monotonic() + 0.003
-
                         state.mark_sent(version)
+
+                        break
 
         except (serial.SerialException, OSError) as exc:
             if not stop.is_set():
                 updates.put((False, f"{PORT}: {exc}"))
                 stop.wait(RECONNECT_DELAY)
+
 
 
 class RemoteEmulatorUI:

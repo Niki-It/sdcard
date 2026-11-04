@@ -11,7 +11,7 @@
 
 #define B_ALERT  0U  // S1  !
 #define B_PRM    1U  // S2  ПРМ
-#define B_GGS    2U  // S3  ГГС1
+#define B_GGS1    2U  // S3  ГГС1
 #define B_F1     3U  // S4  Ф1
 #define B_GGS2   4U  // S5  ГГС2
 #define B_F2     5U  // S6  Ф2

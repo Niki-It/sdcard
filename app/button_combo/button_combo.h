@@ -2,10 +2,13 @@
 #pragma once
 
 #include <stdint.h>
-#include "led_controller/led_controller.h"
+#include <stdbool.h>
 #include "string.h"
+#include "source.h"
+#include "led_controller/led_controller.h"
 
 #define BUTTON_COMBO_COUNT 10U
+
 #define B_ALERT  0U  // S1  !
 #define B_PRM    1U  // S2  ПРМ
 #define B_GGS    2U  // S3  ГГС1
@@ -19,6 +22,7 @@
 
 typedef struct
 {
+    source_t source;
     uint8_t count;
     uint16_t mask;
     ButtonEvent events[BUTTON_COMBO_COUNT];
@@ -34,7 +38,7 @@ static inline bool context_has(FlushContext context, uint8_t button, ButtonEvent
         return false;
     }
 
-    return (context.mask & (1U << button)) &&
+    return (context.mask & (1U << button)) != 0U &&
            context.events[button] == event;
 }
 

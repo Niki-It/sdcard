@@ -20,7 +20,7 @@
 #include "sdio/sdio.h"
 #include "led_controller/led_controller.h"
 #include "led_controller/led_raw.h"
-#include "button_combo.h"
+#include "button_combo/button_combo.h"
 #include "storage/fs.h"
 #include "../lib/Helix/src/pub/mp3dec.h"
 #include "media/mp3_decoder.h"
@@ -34,6 +34,7 @@
 #include "memory.h"
 #include "amp.h"
 #include "announce.h"
+#include "button_combo/source.h"
 
 // Состояния
 typedef enum {
@@ -110,7 +111,7 @@ void SysTick_Handler(void);
 
 /* Стейт машина */
 void flush_combo(FlushContext context);
-static void process_state_event(app_event_t event);
+static void process_state_event(app_event_t event, source_t source);
 static void process_state_logic(void);
 
 // Внешние сигналы

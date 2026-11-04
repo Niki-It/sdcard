@@ -31,6 +31,19 @@ typedef enum
 } led_link_state_t;
 
 #define LED_RECOVERY_LOG_PERIOD 100U
+typedef struct
+{
+    ButtonEvent S1;
+    ButtonEvent S2;
+    ButtonEvent S3;
+    ButtonEvent S4;
+    ButtonEvent S5;
+    ButtonEvent S6;
+    ButtonEvent S7;
+    ButtonEvent S8;
+    ButtonEvent S9;
+    ButtonEvent S10;
+} ButtonEvents;
 #define LED_RECOVERY_SHIFT_PERIOD 4U
 
 typedef struct

@@ -121,11 +121,23 @@ void periph_init(void)
 // Преобразование комбинации в событие
 void flush_combo(FlushContext context)
 {
-    printf("combo received - %u, count - %u\n", context.mask, context.count);
+    if (context.count == 2 &&
+        context_has(context, B_GGS, LONG_EVENT) &&
+        context_has(context, B_PRD, SHORT_EVENT))
+    {
+        if (context.source == REMOTE_1)
+        {
+            printf("Combination from REMOTE_1\r\n");
+        }
+        else if (context.source == REMOTE_2)
+        {
+            printf("Combination from REMOTE_2\r\n");
+        }
+    }
 }
 
 // Обработка переходов между состояниями
-static void process_state_event(app_event_t event)
+static void process_state_event(app_event_t event, source_t source)
 {
     
 }
@@ -155,11 +167,11 @@ static void process_achtung_button(void)
 
     if (current_state == 0U) {
         if (state == IDLE) {
-            process_state_event(APP_EVENT_FIRE_START);
+            process_state_event(APP_EVENT_FIRE_START, OUTSOURCE);
         }
     } else {
         if (state == FIRE) {
-            process_state_event(APP_EVENT_FIRE_FINISH);
+            process_state_event(APP_EVENT_FIRE_FINISH, OUTSOURCE);
         }
     }
 }
@@ -178,11 +190,11 @@ static void process_trk_button(void)
 
     if (current_state == 0U) {
         if (state == IDLE) {
-            process_state_event(APP_EVENT_PRM_START);
+            process_state_event(APP_EVENT_PRM_START, OUTSOURCE);
         }
     } else {
         if (state == PRM) {
-            process_state_event(APP_EVENT_PRM_FINISH);
+            process_state_event(APP_EVENT_PRM_FINISH, OUTSOURCE);
         }
     }
 }

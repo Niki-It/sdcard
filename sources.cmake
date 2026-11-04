@@ -2,7 +2,7 @@ set(SOURCES
     "app/aic3104.c"
     "app/amp.c"
     "app/announce.c"
-    "app/button_combo.c"
+    "app/button_combo/button_combo.c"
     "app/circular/ring.c"
     "app/count_bits_table.c"
     "app/customcrc8/new_crc8.c"

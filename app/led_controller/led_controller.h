@@ -37,20 +37,6 @@ typedef enum
     LONG_EVENT
 } ButtonEvent;
 
-typedef struct
-{
-    ButtonEvent S1;
-    ButtonEvent S2;
-    ButtonEvent S3;
-    ButtonEvent S4;
-    ButtonEvent S5;
-    ButtonEvent S6;
-    ButtonEvent S7;
-    ButtonEvent S8;
-    ButtonEvent S9;
-    ButtonEvent S10;
-} ButtonEvents;
-
 #define LED_VD1  (1U << 0)
 #define LED_VD2  (1U << 1)
 #define LED_VD3  (1U << 2)

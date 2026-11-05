@@ -36,67 +36,32 @@
 #include "announce.h"
 #include "button_combo/source.h"
 
-// Состояния
-typedef enum {
-    IDLE,
-    NOTIFICATION,
-    BROADCAST,
-    PRM,
-    FIRE,
-    ALARM, 
-    PLAYING_FR1,
-    PLAYING_FR2,
-    RECORDING_FR1,
-    RECORDING_FR2
-} app_state_t;
-
-// События
-typedef enum {
-    // Оповещение
-    APP_EVENT_NOTIFICATION_START,
-    APP_EVENT_NOTIFICATION_FINISH,
-
-    // Прием
-    APP_EVENT_PRM_START,
-    APP_EVENT_PRM_FINISH,
-
-    // Передача
-    APP_EVENT_BROADCAST_START,
-    APP_EVENT_BROADCAST_FINISH,
-
-    // Речевое пожарное
-    APP_EVENT_FIRE_START,
-    APP_EVENT_FIRE_FINISH,
-
-    // Запись ФР1, ФР2
-    APP_EVENT_FR1_RECORD_START,
-    APP_EVENT_FR1_RECORD_ERROR,
-    APP_EVENT_FR1_RECORD_FINISH,
-
-    APP_EVENT_FR2_RECORD_START,
-    APP_EVENT_FR2_RECORD_ERROR,
-    APP_EVENT_FR2_RECORD_FINISH,
-
-    // Тревога
-    APP_EVENT_ALARM_START,
-    APP_EVENT_ALARM_FINISH,
-
-    // Воспроизведение
-    APP_EVENT_PLAYING_FR1_START,
-    APP_EVENT_PLAYING_FR1_FINISH,
-    APP_EVENT_PLAYING_FR2_START,
-    APP_EVENT_PLAYING_FR2_FINISH,
-    // Окончание FR и Alarm
-    APP_EVENT_ALARM_FR_FINISH,
-    APP_EVENT_PLAYBACK_ERROR,
-    // + и -
-    APP_EVENT_VOLUME_UP,
-    APP_EVENT_VOLUME_DOWN,
-} app_event_t;
 
 /* ============================================================================
  * Прототипы внешних функций
  * ========================================================================== */
+typedef enum
+{
+    HANDLER_PROCESSING = 0,
+    HANDLER_FINISHED,
+    HANDLER_ERROR
+} handler_responce_t;
+typedef enum
+{
+    ACHTUNG_PRESSED = 0,
+    ACHTUNG_RELEASED,
+    TRK_PRESSED,
+    TRK_RELEASED,
+    RECEIVE_START,
+    RECEIVE_FINISH,
+    RECEIVE_TOGGLE,
+    AUTO_RECEIVE_TOGGLE,
+    RECEIVE_TIMEOUT,
+    GGS1_START,
+    GGS1_FINISH,
+    GGS2_START,
+    GGS2_FINISH
+} app_event_t;
 
 extern void diskio_set_sd_card(sd_card_info_t *info);
 

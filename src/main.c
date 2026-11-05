@@ -229,7 +229,7 @@ static void receive_end(source_t source)
         return;
     }
 
-    printf("END RECEIVE: источник события = %s, источник приёма = %s\r\n",
+    printf("END RECEIVE: event source = %s, receive source = %s\r\n",
            source_name(source), source_name(app.modes[RECEIVE].source));
 
     app.active_modes &= ~(1U << RECEIVE);
@@ -244,7 +244,7 @@ static void ggs1_end(source_t source)
         return;
     }
 
-    printf("END GGS1: источник = %s\r\n", source_name(source));
+    printf("END GGS1: source = %s\r\n", source_name(source));
 
     app.active_modes &= ~(1U << GGS1);
     app.modes[GGS1].source = OUTSOURCE;
@@ -258,7 +258,7 @@ static void ggs2_end(source_t source)
         return;
     }
 
-    printf("END GGS2: источник = %s\r\n", source_name(source));
+    printf("END GGS2: source = %s\r\n", source_name(source));
 
     app.active_modes &= ~(1U << GGS2);
     app.modes[GGS2].source = OUTSOURCE;
@@ -337,7 +337,7 @@ static void receive_start(source_t source)
     app.modes[RECEIVE].source = source;
     app.active_modes |= 1U << RECEIVE;
 
-    printf("START RECEIVE: источник = %s\r\n", source_name(source));
+    printf("START RECEIVE: source = %s\r\n", source_name(source));
 }
 
 // Запуск GGS1
@@ -356,7 +356,7 @@ static void ggs1_start(source_t source)
     app.modes[GGS1].source = source;
     app.active_modes |= 1U << GGS1;
 
-    printf("START GGS1: источник = %s\r\n", source_name(source));
+    printf("START GGS1: source = %s\r\n", source_name(source));
 }
 
 // Запуск GGS2
@@ -375,7 +375,7 @@ static void ggs2_start(source_t source)
     app.modes[GGS2].source = source;
     app.active_modes |= 1U << GGS2;
 
-    printf("START GGS2: источник = %s\r\n", source_name(source));
+    printf("START GGS2: source = %s\r\n", source_name(source));
 }
 
 // Включение автоматического приёма
@@ -383,7 +383,7 @@ static void auto_receive_start(source_t source)
 {
     app.auto_receive = true;
 
-    printf("IDLE: автоматический приём включён, источник = %s\r\n",
+    printf("IDLE: auto receive off, source = %s\r\n",
            source_name(source));
 }
 
@@ -392,7 +392,7 @@ static void auto_receive_end(source_t source)
 {
     app.auto_receive = false;
 
-    printf("IDLE: автоматический приём выключен, источник = %s\r\n",
+    printf("IDLE: auto receive on, source = %s\r\n",
            source_name(source));
 }
 
@@ -539,9 +539,42 @@ static void process_state_event(app_event_t event, source_t source)
 }
 
 // Переодическое обслуживание текущего состояния
+// Периодическое обслуживание активных режимов
 static void process_state_logic(void)
 {
+    static uint32_t last_poll_ms = 0;
+    static uint32_t timeout_start_ms = 0;
+    static bool timeout_active = false;
 
+    uint32_t now = uptime_ms;
+
+    if (now - last_poll_ms < POLL_INTERVAL_MS)
+    {
+        return;
+    }
+
+    last_poll_ms = now;
+
+    if (mode_is_active(RECEIVE) &&
+        app.modes[RECEIVE].source == OUTSOURCE &&
+        app.last_trk)
+    {
+        if (!timeout_active)
+        {
+            timeout_start_ms = now;
+            timeout_active = true;
+        }
+
+        if (now - timeout_start_ms >= RECEIVE_TIMEOUT_MS)
+        {
+            process_state_event(RECEIVE_TIMEOUT, OUTSOURCE);
+            timeout_active = false;
+        }
+    }
+    else
+    {
+        timeout_active = false;
+    }
 }
 
 /* ============================================================================

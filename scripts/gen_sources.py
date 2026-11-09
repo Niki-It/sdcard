@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """
-Генератор CMake SOURCES для embedded-проекта.
-Рекурсивно собирает .c файлы из указанных папок и пишет sources.cmake.
+Генератор sources.cmake для смешанного C/C++ embedded-проекта.
+Рекурсивно собирает исходники из указанных директорий.
 """
 
-import os
 from pathlib import Path
 
 # ====== НАСТРОЙКИ ======
-# Папки, в которых ищем .c файлы (порядок сохраняется в выводе)
 DIRS = [
     "app",
     "core",
@@ -16,67 +14,73 @@ DIRS = [
     "drivers",
 ]
 
-# Имя CMake-переменной
+SOURCE_EXTENSIONS = {".c", ".cpp", ".cc", ".cxx"}
 VAR_NAME = "SOURCES"
-
-# Файл для записи результата (None = вывод в консоль)
-OUTPUT_FILE = "sources.cmake"
+OUTPUT_FILE = "sources.cmake"  # None = вывод в консоль
 # =======================
 
 
-def collect_c_files(directories: list[str], base_dir: str = ".") -> list[str]:
-    """Рекурсивно собирает все .c файлы из указанных директорий."""
-    sources = []
-    base = Path(base_dir).resolve()
+def collect_source_files(directories: list[str], base_dir: Path) -> list[str]:
+    """Рекурсивно собирает C/C++ файлы в стабильном порядке."""
+    sources: list[str] = []
+    seen: set[str] = set()
 
     for directory in directories:
-        dir_path = base / directory
-        if not dir_path.exists():
+        dir_path = base_dir / directory
+        if not dir_path.is_dir():
             print(f"[WARN] Директория не найдена: {dir_path}")
             continue
 
         group = []
-        for root, _, files in os.walk(dir_path):
-            for file in files:
-                if file.endswith(".c"):
-                    rel_path = Path(root, file).relative_to(base).as_posix()
+        for path in dir_path.rglob("*"):
+            if path.is_file() and path.suffix in SOURCE_EXTENSIONS:
+                rel_path = path.relative_to(base_dir).as_posix()
+                if rel_path not in seen:
+                    seen.add(rel_path)
                     group.append(rel_path)
 
-        # Сортируем файлы внутри каждой папки для стабильного вывода
-        group.sort()
-        sources.extend(group)
+        sources.extend(sorted(group))
 
     return sources
 
 
 def generate_cmake_sources(sources: list[str], variable: str = "SOURCES") -> str:
-    """Формирует строку set(SOURCES ...) для CMakeLists.txt."""
+    """Формирует содержимое set(SOURCES ...) для CMake."""
     lines = [f"set({variable}"]
     for src in sources:
         lines.append(f'    "{src}"')
     lines.append(")")
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"
 
 
-def main():
-    sources = collect_c_files(DIRS)
+def main() -> int:
+    # Предполагаем, что скрипт расположен в корне проекта.
+    base_dir = Path(__file__).resolve().parent.parent
+    sources = collect_source_files(DIRS, base_dir)
 
     if not sources:
-        print("[ERROR] Не найдено ни одного .c файла!")
-        return
+        print("[ERROR] Не найдено ни одного C/C++ исходника!")
+        return 1
 
-    print(f"[INFO] Найдено {len(sources)} .c файл(ов)")
+    c_count = sum(Path(src).suffix == ".c" for src in sources)
+    cpp_count = len(sources) - c_count
+    print(f"[INFO] Найдено {len(sources)} файлов: C={c_count}, C++={cpp_count}")
 
     result = generate_cmake_sources(sources, VAR_NAME)
 
-    if OUTPUT_FILE:
-        Path(OUTPUT_FILE).write_text(result, encoding="utf-8")
-        print(f"[OK] Результат записан в {OUTPUT_FILE}")
-    else:
-        print("\n" + "=" * 60)
-        print(result)
-        print("=" * 60)
+    if OUTPUT_FILE is None:
+        print(result, end="")
+        return 0
+
+    output_path = base_dir / OUTPUT_FILE
+    if output_path.is_file() and output_path.read_text(encoding="utf-8") == result:
+        print(f"[OK] Без изменений: {output_path}")
+        return 0
+
+    output_path.write_text(result, encoding="utf-8")
+    print(f"[OK] Результат записан в {output_path}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

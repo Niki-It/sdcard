@@ -6,7 +6,7 @@ set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/cmake/arm-none-eabi-gcc.cmake)
 # Загрузка конфигурации
 include(project.cfg)
 
-project(${PROJECT_NAME} C ASM)
+project(${PROJECT_NAME} C CXX ASM)
 
 # Включение STM32 настроек
 include(cmake/stm32.cmake)
@@ -27,6 +27,14 @@ target_include_directories(${PROJECT_NAME}.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/src    
 )
 
+# C++ применяется только к .cpp; C-файлы продолжают собираться как C.
+set_target_properties(${PROJECT_NAME}.elf PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+    LINKER_LANGUAGE CXX
+)
+
 # Подключение библиотек
 include(cmake/libs.cmake)
 
@@ -40,6 +48,9 @@ target_compile_options(${PROJECT_NAME}.elf PRIVATE
     -Wno-unused-parameter
     -ffunction-sections
     -fdata-sections
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-threadsafe-statics>
 )
 
 # Флаги линковки
@@ -53,6 +64,8 @@ target_link_options(${PROJECT_NAME}.elf PRIVATE
     -Wl,--gc-sections
     -Wl,--print-memory-usage
     -Wl,--start-group
+    -Wl,-Map=${CMAKE_BINARY_DIR}/${PROJECT_NAME}.map
+    -Wl,--cref
     -lm
     -lc
     -lgcc

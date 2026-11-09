@@ -31,6 +31,7 @@ set(SOURCES
     "core/system_stm32f4xx.c"
     "src/NVIC.c"
     "src/clock.c"
+    "src/cpp_smoke.cpp"
     "src/gpio.c"
     "src/hard_fault.c"
     "src/main.c"

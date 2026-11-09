@@ -60,7 +60,38 @@ typedef enum
     GGS1_START,
     GGS1_FINISH,
     GGS2_START,
-    GGS2_FINISH
+    GGS2_FINISH,
+    APB1_START,
+    APB1_FINISH,
+    APB2_START,
+    APB2_FINISH,
+    AUTO_ANNOUNCE1_TOGGLE,
+    AUTO_ANNOUNCE2_TOGGLE,
+    ANNOUNCE1_START,
+    ANNOUNCE1_FINISH,
+    ANNOUNCE2_START,
+    ANNOUNCE2_FINISH,
+    VOLUME_CHANGE,
+    ALERT_TOGGLE,
+    RECORD1_START,
+    RECORD1_FINISH,
+    RECORD2_START,
+    RECORD2_FINISH,
+    PLAY1_GGS1_START,
+    PLAY1_GGS2_START,
+    PLAY1_APB1_START,
+    PLAY1_APB2_START,
+    PLAY1_RECEIVE_START,
+    PLAY2_GGS1_START,
+    PLAY2_GGS2_START,
+    PLAY2_APB1_START,
+    PLAY2_APB2_START,
+    PLAY2_RECEIVE_START,
+    PLAY_GGS1_FINISH,
+    PLAY_GGS2_FINISH,
+    PLAY_APB1_FINISH,
+    PLAY_APB2_FINISH,
+    PLAY_RECEIVE_FINISH
 } app_event_t;
 
 extern void diskio_set_sd_card(sd_card_info_t *info);
@@ -74,24 +105,5 @@ int main(void);
 void periph_init(void);
 void SysTick_Handler(void);
 
-/* Стейт машина */
+/* Entry point for button combination events; implementation in main.c. */
 void flush_combo(FlushContext context);
-static void process_state_event(app_event_t event, source_t source);
-static void process_state_logic(void);
-
-// Внешние сигналы
-static void process_achtung_button(void);
-static void process_trk_button(void);
-
-// ------------------------ ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ СТЕЙТ МАШИНЫ --------------------
-// static void start_bypass(void);
-// static void stop_bypass(void);
-
-// static FRESULT start_recording(const char* path);
-// static void stop_recording(FRESULT error);
-// static void app_playback_abort(void);
-// static FRESULT start_playback(const char* path);
-// static void finish_playback(FRESULT error);
-// static void play_next_announce(void);
-// static void playback_file_finished(void);
-// static void switch_active_remote_mux(void);

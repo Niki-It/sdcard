@@ -118,30 +118,13 @@ def crc8(data: bytes) -> int:
 
 
 def make_response(request: bytes, events: list[int]) -> bytes:
-
-    """4-byte reply: command/frame, S1..S10 (2 bits each), CRC."""
-
-    # Byte 1: command bit 7; S10 bits 5..6; S9 bits 3..4; frame bits 0..1.
-    b0 = (request[0] & 0x83) | (events[8] << 3) | (events[9] << 5)
-
-
-
-    # Byte 2: S5..S8, 2 bits per button.
-    b1 = events[4] | (events[5] << 2) | (events[6] << 4) | (events[7] << 6)
-
-
-
-    # Byte 3: S1..S4, 2 bits per button.
-    b2 = events[0] | (events[1] << 2) | (events[2] << 4) | (events[3] << 6)
-
-
-
-    payload = bytes((b0, b1, b2))
-
+    """5-byte reply: command/frame, S9..S10, S5..S8, S1..S4, CRC."""
+    b0 = request[0] & 0x03
+    b1 = events[8] | (events[9] << 2)
+    b2 = events[4] | (events[5] << 2) | (events[6] << 4) | (events[7] << 6)
+    b3 = events[0] | (events[1] << 2) | (events[2] << 4) | (events[3] << 6)
+    payload = bytes((b0, b1, b2, b3))
     return payload + bytes((crc8(payload),))
-
-
-
 
 
 class EventState:
@@ -308,22 +291,14 @@ def serial_worker(port_name: str, state: EventState, updates: queue.Queue, stop:
 
 
 
-                    while not echo and len(rx) >= 3:
+                    while not echo and len(rx) >= 4:
 
-                        request = bytes(rx[:3])
-
-
-
-                        # Биты 2 и 3 первого байта запроса не используются.
-                        if request[0] & 0x0C:
-
-                            del rx[0]
-
-                            continue
+                        request = bytes(rx[:4])
 
 
 
-                        if crc8(request[:2]) != request[2]:
+                        # Биты 2..7 содержат команду. Поддерживается команда 0.
+                        if request[0] & 0xFC:
 
                             del rx[0]
 
@@ -331,18 +306,26 @@ def serial_worker(port_name: str, state: EventState, updates: queue.Queue, stop:
 
 
 
-                        del rx[:3]
+                        if crc8(request[:3]) != request[3]:
 
-
-
-                        # Игнорируем 00 00 00.
-                        if request == b"\x00\x00\x00":
+                            del rx[0]
 
                             continue
 
 
 
-                        state.add_rx_bytes(3)
+                        del rx[:4]
+
+
+
+                        # Игнорируем 00 00 00 00.
+                        if request == b"\x00\x00\x00\x00":
+
+                            continue
+
+
+
+                        state.add_rx_bytes(4)
 
 
 

@@ -10,7 +10,7 @@
 #include <stm32f4xx_ll_usart.h>
 #include <stm32f4xx_ll_tim.h>
 
-#define RESPONSE_LENGTH      4U
+#define RESPONSE_LENGTH      5U
 #define REMOTE_COUNT          2U
 #define LED_REMOTE_BAUDRATE  38400U
 #define RECOVERY_PADDING_BYTE 0xFFU
@@ -61,7 +61,10 @@ static void send_sync(USART_TypeDef *USARTx, const uint8_t *raw, uint8_t len)
     LL_USART_ClearFlag_TC(USARTx);
 }
 
-static void send_command_internal(USART_TypeDef *USARTx, SetLedStateCommand cmd, bool add_padding)
+static void send_command_internal(
+    USART_TypeDef *USARTx,                           
+    SetLedStateCommand cmd,                        
+    bool add_padding)
 {
     LedRawContext *context = get_raw_context(USARTx);
 
@@ -70,8 +73,8 @@ static void send_command_internal(USART_TypeDef *USARTx, SetLedStateCommand cmd,
         return;
     }
 
-    uint8_t tx_buffer[4];
-    uint8_t tx_length = 3U;
+    uint8_t tx_buffer[5];
+    uint8_t tx_length = 4U;
 
     const uint8_t *tx_data = cmd.data;
 
@@ -81,9 +84,10 @@ static void send_command_internal(USART_TypeDef *USARTx, SetLedStateCommand cmd,
         tx_buffer[1] = cmd.data[0];
         tx_buffer[2] = cmd.data[1];
         tx_buffer[3] = cmd.data[2];
+        tx_buffer[4] = cmd.data[3];
 
         tx_data = tx_buffer;
-        tx_length = 4U;
+        tx_length = 5U;
     }
 
     context->rx_enabled = 0U;

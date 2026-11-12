@@ -214,13 +214,17 @@ static inline SetLedStateCommand form_led_command(uint8_t frame_number)
 
     uint16_t output = get_output_state();
 
-    command.data[0] = (uint8_t)(
-        (frame_number & 0x03U) |
-        ((output >> 4) & 0x70U)
-    );
+    // Команда 0, номер кадра в битах 0–1.
+    command.data[0] = (uint8_t)(frame_number & 0x03U);
 
-    command.data[1] = (uint8_t)(output & 0xFFU);
-    command.data[2] = crc(command.data, 2U);
+    // VD9–VD11 в битах 0–2, остальные биты нулевые.
+    command.data[1] = (uint8_t)((output >> 8) & 0x07U);
+
+    // VD1–VD8.
+    command.data[2] = (uint8_t)(output & 0xFFU);
+
+    // CRC первых трёх байтов.
+    command.data[3] = crc(command.data, 3U);
 
     return command;
 }
@@ -249,22 +253,27 @@ static inline void send_led_command
 // Обработка ответов пультов
 // ============================================================================
 
-static inline bool is_valid_response(const RawResponce *response, uint8_t frame_number)
+static inline bool is_valid_response(
+    RawResponce *response,                    
+    uint8_t frame_number
+)
 {
-    if ((response->data[0] & 0x03U) != frame_number)
+    if (response->data[0] != (frame_number & 0x03U))
     {
         return false;
     }
 
-    return response->data[3] == crc(response->data, 3U);
+    return response->data[4] == crc(response->data, 4U);
 }
 
-static inline void write_events(LedControllerContext *controller,
-                                RawResponce response)
+static inline void write_events(
+    LedControllerContext *controller,
+    RawResponce response
+)
 {
-    uint32_t data = (uint32_t)response.data[2] |
-                    ((uint32_t)response.data[1] << 8) |
-                    ((uint32_t)((response.data[0] >> 3) & 0x0FU) << 16);
+    uint32_t data = (uint32_t)response.data[3] |
+                    ((uint32_t)response.data[2] << 8) |
+                    ((uint32_t)(response.data[1] & 0x0FU) << 16);
 
     ButtonStatus *buttons = &controller->buttons;
 
@@ -346,7 +355,7 @@ static void print_recovery_diagnostics(USART_TypeDef *USARTx,
     led_raw_get_diagnostics(USARTx, &diagnostics);
 
     uint32_t phase = ((controller->recovery_attempts - 1U) /
-        LED_RECOVERY_SHIFT_PERIOD) % 3U;
+        LED_RECOVERY_SHIFT_PERIOD) % 4U;
 
     printf("RECOVERY: Remote %u, attempt %lu, frame %u, phase %lu\r\n",
         USARTx == USART2 ? 1U : 2U,
@@ -412,7 +421,7 @@ static void process_controller(
                 return;
             }
 
-            if (response.data[3] != crc(response.data, 3U))
+            if (response.data[4] != crc(response.data, 4U))
             {
                 controller->crc_errors++;
             }

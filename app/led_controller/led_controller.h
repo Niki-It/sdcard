@@ -69,10 +69,10 @@ void tim6_callback(void);
 // Типы для низкоуровневого драйвера led_raw
 typedef struct
 {
-    uint8_t data[3];
+    uint8_t data[4];
 } SetLedStateCommand;
 
 typedef struct
 {
-    uint8_t data[4];
+    uint8_t data[5];
 } RawResponce;

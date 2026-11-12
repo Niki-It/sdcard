@@ -149,17 +149,9 @@ void process_button_combinations(const ButtonStatus *status, uint32_t uptime_ms)
     }
 
     // Определяем источник события.
-    source_t source;
+    source_t source = status->source;
 
-    if (status->active_remote == USART2)
-    {
-        source = REMOTE_1;
-    }
-    else if (status->active_remote == UART4)
-    {
-        source = REMOTE_2;
-    }
-    else
+    if (source != REMOTE_1 && source != REMOTE_2)
     {
         return;
     }

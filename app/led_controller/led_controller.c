@@ -1,19 +1,22 @@
-#include <stddef.h>
+
+#include <stdio.h>
 
 #include "led_controller.h"
-#include "stdio.h"
-#include "customcrc8/new_crc8.h"
 #include "led_raw.h"
+#include "customcrc8/new_crc8.h"
 
-#define LED_RESPONSE_TIMEOUT_MS 20U
-#define LED_MAX_FAILED_REQUESTS  20U
-#define LED_REMOTE_COUNT         2U
+#define LED_COUNT                  11U
+#define LED_REMOTE_COUNT           2U
+#define LED_RESPONSE_TIMEOUT_MS   20U
+#define LED_MAX_FAILED_REQUESTS   20U
+#define LED_RECOVERY_LOG_PERIOD  100U
+#define LED_RECOVERY_SHIFT_PERIOD  4U
 
 typedef struct
 {
-    uint32_t toggles_left;
-    uint32_t period_ms;
     uint32_t last_tick;
+    uint32_t period_ms;
+    uint32_t toggles_left;
     bool timer_started;
 } BlinkState;
 
@@ -30,22 +33,6 @@ typedef enum
     LED_LINK_RECOVERY
 } led_link_state_t;
 
-#define LED_RECOVERY_LOG_PERIOD 100U
-typedef struct
-{
-    ButtonEvent S1;
-    ButtonEvent S2;
-    ButtonEvent S3;
-    ButtonEvent S4;
-    ButtonEvent S5;
-    ButtonEvent S6;
-    ButtonEvent S7;
-    ButtonEvent S8;
-    ButtonEvent S9;
-    ButtonEvent S10;
-} ButtonEvents;
-#define LED_RECOVERY_SHIFT_PERIOD 4U
-
 typedef struct
 {
     led_exchange_state_t exchange_state;
@@ -53,111 +40,124 @@ typedef struct
 
     uint32_t request_tick;
     uint32_t recovery_attempts;
-    ButtonEvents button_events;
+
+    ButtonStatus buttons;
 
     uint8_t frame_number;
     uint8_t failed_requests;
+
     uint32_t crc_errors;
     uint32_t frame_errors;
 } LedControllerContext;
-/* Отдельные состояния обмена: USART2 и UART4. */
+
+// Состояния светодиодов общие для обоих пультов
+static uint16_t steady_state;
+static uint16_t blink_phase;
+static BlinkState blinking[LED_COUNT];
+
+// Независимые контексты обмена
 static LedControllerContext controllers[LED_REMOTE_COUNT];
 
-/* Источник последней принятой команды. По умолчанию первый пульт. */
-static USART_TypeDef *active_remote = USART2;
-
-
-
-/* Состояние всех девяти светодиодов и мигания общее для двух пультов. */
-static uint16_t led_state;
-static BlinkState blinking[LED_BLINKING_COUNT];
+// Флаг TIM6
 static volatile uint8_t is_send_command;
 
-static inline LedControllerContext *get_controller(USART_TypeDef *USARTx)
-{
-    if (USARTx == USART2)
-    {
-        return &controllers[0];
-    }
 
-    if (USARTx == UART4)
-    {
-        return &controllers[1];
-    }
+// ============================================================================
+// Управление светодиодами
+// ============================================================================
 
-    return NULL;
-}
-
-static inline uint16_t leds_to_mask(Leds leds)
-{
-    return (uint16_t)(
-        (leds.VD1 ? LED_VD1 : 0U) | (leds.VD2 ? LED_VD2 : 0U) |
-        (leds.VD3 ? LED_VD3 : 0U) | (leds.VD4 ? LED_VD4 : 0U) |
-        (leds.VD5 ? LED_VD5 : 0U) | (leds.VD6 ? LED_VD6 : 0U) |
-        (leds.VD7 ? LED_VD7 : 0U) | (leds.VD8 ? LED_VD8 : 0U) |
-        (leds.VD9 ? LED_VD9 : 0U)) | (leds.VD10 ? LED_VD10 : 0U)
-        | (leds.VD11 ? LED_VD11 : 0U);
-}
-
-static inline void stop_blinking(uint16_t mask)
-{
-    for (unsigned i = 0; i < LED_BLINKING_COUNT; ++i)
-    {
-        if (mask & (1U << i))
-        {
-            blinking[i] = (BlinkState){0};
-        }
-    }
-}
-
-void set_all_leds(uint16_t mask)
-{
-    stop_blinking(LED_ALL);
-    led_state = mask & LED_ALL;
-}
-
-void set_leds(uint16_t mask, bool enabled)
+void LedController_Set(uint16_t mask, bool enabled)
 {
     mask &= LED_ALL;
-    stop_blinking(mask);
 
     if (enabled)
     {
-        led_state |= mask;
+        steady_state |= mask;
     }
     else
     {
-        led_state &= (uint16_t)~mask;
+        steady_state &= (uint16_t)~mask;
     }
 }
-uint16_t get_leds(uint16_t mask)
+
+void LedController_SetAll(uint16_t mask)
 {
-    return led_state & mask & LED_ALL;
+    steady_state = mask & LED_ALL;
 }
 
-void request_blinking(blinking_led_t led, uint16_t count, uint32_t period_ms)
+uint16_t LedController_Get(uint16_t mask)
 {
-    if ((unsigned)led >= LED_BLINKING_COUNT)
+    return steady_state & mask & LED_ALL;
+}
+
+static inline uint16_t get_output_state(void)
+{
+    return (steady_state ^ blink_phase) & LED_ALL;
+}
+
+
+// ============================================================================
+// Мигание светодиодов
+// ============================================================================
+
+void LedController_Blink(uint16_t mask, uint16_t count, uint32_t period_ms)
+{
+    mask &= LED_ALL;
+
+    if (mask == 0U || count == 0U)
     {
         return;
     }
 
-    BlinkState *item = &blinking[led];
-    *item = (BlinkState){
-        .toggles_left = (uint32_t)count * 2U,
-        .period_ms = period_ms != 0U ? period_ms : 1U
-    };
-
-    if (item->toggles_left != 0U)
+    if (period_ms == 0U)
     {
-        led_state ^= (uint16_t)(1U << (unsigned)led);
-        --item->toggles_left;
+        period_ms = 1U;
+    }
+
+    for (uint8_t i = 0; i < LED_COUNT; i++)
+    {
+        //перебираем светодиоды (каждый это 1 бит)
+        uint16_t bit = (uint16_t)(1U << i);
+
+        // бит (светодиод) есть в маске (т.е задано для него мигание)
+        if (!(mask & bit))
+        {
+            continue;
+        }
+
+        BlinkState *item = &blinking[i];
+
+        *item = (BlinkState){0};
+
+        item->period_ms = period_ms;
+        item->toggles_left = (uint32_t)count * 2U - 1U;
+
+        // Первое переключение сразу
+        blink_phase |= bit;
     }
 }
 
-void blinking_process(uint32_t current_tick)
+void LedController_StopBlink(uint16_t mask)
 {
-    for (unsigned i = 0; i < LED_BLINKING_COUNT; ++i)
+    mask &= LED_ALL;
+
+    for (uint8_t i = 0; i < LED_COUNT; i++)
+    {
+        uint16_t bit = (uint16_t)(1U << i);
+
+        if (!(mask & bit))
+        {
+            continue;
+        }
+
+        blinking[i] = (BlinkState){0};
+        blink_phase &= (uint16_t)~bit;
+    }
+}
+
+static void process_blinking(uint32_t current_tick)
+{
+    for (uint8_t i = 0; i < LED_COUNT; i++)
     {
         BlinkState *item = &blinking[i];
 
@@ -173,146 +173,83 @@ void blinking_process(uint32_t current_tick)
             continue;
         }
 
-        if ((uint32_t)(current_tick - item->last_tick) >= item->period_ms)
+        uint32_t elapsed = current_tick - item->last_tick;
+        uint32_t steps = elapsed / item->period_ms;
+
+        if (steps == 0U)
         {
-            item->last_tick = current_tick;
-            led_state ^= (uint16_t)(1U << i);
-            --item->toggles_left;
+            continue;
+        }
+
+        uint16_t bit = (uint16_t)(1U << i);
+
+        // Все переключения выполнены
+        if (steps >= item->toggles_left)
+        {
+            *item = (BlinkState){0};
+            blink_phase &= (uint16_t)~bit;
+            continue;
+        }
+
+        item->toggles_left -= steps;
+        // не берем current_tick, а задаем точно когда должно было наступить мигание (самое свежее)
+        item->last_tick += steps * item->period_ms;
+
+        // прошло нечетное кол-во интервалов
+        if (steps & 1U)
+        {
+            blink_phase ^= bit;
         }
     }
 }
 
-static inline SetLedStateCommand formSetLedStateCommand(uint8_t frame_number)
+
+// ============================================================================
+// Формирование и отправка команд
+// ============================================================================
+
+static inline SetLedStateCommand form_led_command(uint8_t frame_number)
 {
     SetLedStateCommand command = {{0}};
 
-    // формирование 1 байта запроса
+    uint16_t output = get_output_state();
+
     command.data[0] = (uint8_t)(
         (frame_number & 0x03U) |
-        ((led_state >> 4) & 0x70U)
+        ((output >> 4) & 0x70U)
     );
 
-    command.data[1] = (uint8_t)(led_state & 0xFFU);
+    command.data[1] = (uint8_t)(output & 0xFFU);
     command.data[2] = crc(command.data, 2U);
 
     return command;
 }
 
-void send_SetLedState(USART_TypeDef *USARTx)
+static inline void send_led_command
+(
+    USART_TypeDef *USARTx,
+    uint8_t frame_number,
+    bool add_padding
+)
 {
-    LedControllerContext *controller = get_controller(USARTx);
+    SetLedStateCommand command = form_led_command(frame_number);
 
-    if (controller == NULL)
+    if (add_padding)
     {
-        return;
+        send_command_sync_padded(USARTx, command);
     }
-
-    send_command_sync(USARTx, formSetLedStateCommand(controller->frame_number));
-}
-
-static inline void write_events(LedControllerContext *controller, RawResponce response)
-{
-    uint32_t data = (uint32_t)response.data[2] |
-                    ((uint32_t)response.data[1] << 8) |
-                    ((uint32_t)((response.data[0] >> 3) & 0x0FU) << 16);
-
-    controller->button_events.S1  = (ButtonEvent)((data >> 0) & 0x03U);
-    controller->button_events.S2  = (ButtonEvent)((data >> 2) & 0x03U);
-    controller->button_events.S3  = (ButtonEvent)((data >> 4) & 0x03U);
-    controller->button_events.S4  = (ButtonEvent)((data >> 6) & 0x03U);
-    controller->button_events.S5  = (ButtonEvent)((data >> 8) & 0x03U);
-    controller->button_events.S6  = (ButtonEvent)((data >> 10) & 0x03U);
-    controller->button_events.S7  = (ButtonEvent)((data >> 12) & 0x03U);
-    controller->button_events.S8  = (ButtonEvent)((data >> 14) & 0x03U);
-    controller->button_events.S9  = (ButtonEvent)((data >> 16) & 0x03U);
-    controller->button_events.S10 = (ButtonEvent)((data >> 18) & 0x03U);
-}
-
-static inline ButtonStatus take_button_events(LedControllerContext *controller, USART_TypeDef *USARTx)
-{
-    ButtonStatus status = {0};
-
-    if (controller->exchange_state != LED_EXCHANGE_EVENTS_PENDING)
+    else
     {
-        return status;
+        send_command_sync(USARTx, command);
     }
-
-    status.ready = 1U;
-    status.active_remote = USARTx;
-
-    status.S1 = controller->button_events.S1;
-    status.S2 = controller->button_events.S2;
-    status.S3 = controller->button_events.S3;
-    status.S4 = controller->button_events.S4;
-    status.S5 = controller->button_events.S5;
-    status.S6 = controller->button_events.S6;
-    status.S7 = controller->button_events.S7;
-    status.S8 = controller->button_events.S8;
-    status.S9 = controller->button_events.S9;
-    status.S10 = controller->button_events.S10;
-
-    controller->frame_number = (uint8_t)((controller->frame_number + 1U) & 0x03U);
-    controller->exchange_state = LED_EXCHANGE_IDLE;
-
-    return status;
 }
 
-/*
- * Один общий обработчик комбинаций в main.c. Берём ответы с обоих
- * пультов, но в button_combo передаём только выбранный источник.
- * Одновременная работа обоих пультов на этом этапе не поддерживается.
- */
-ButtonStatus poll_button_events(void)
-{
-    if (controllers[0].exchange_state == LED_EXCHANGE_EVENTS_PENDING)
-    {
-        active_remote = USART2;
-        return take_button_events(&controllers[0], USART2);
-    }
 
-    if (controllers[1].exchange_state == LED_EXCHANGE_EVENTS_PENDING)
-    {
-        active_remote = UART4;
-        return take_button_events(&controllers[1], UART4);
-    }
+// ============================================================================
+// Обработка ответов пультов
+// ============================================================================
 
-    return (ButtonStatus){0};
-}
-
-USART_TypeDef *led_controller_active_usart(void)
-{
-    return active_remote;
-}
-
-void LedController_PeriphInit(void)
-{
-    led_controller_usart_init();
-    TIM6_Init();
-}
-
-uint8_t can_send_command(void)
-{
-    if (is_send_command)
-    {
-        is_send_command = 0U;
-        return 1U;
-    }
-
-    return 0U;
-}
-
-void tim6_handler(void)
-{
-    is_send_command = 1U;
-    tim6_callback();
-}
-
-__attribute__((weak)) void tim6_callback(void)
-{
-}
-
-// Проверка номера кадра и CRC полученного ответа
-static inline bool is_valid_response(RawResponce *response, uint8_t frame_number)
+static inline bool is_valid_response(const RawResponce *response, uint8_t frame_number)
 {
     if ((response->data[0] & 0x03U) != frame_number)
     {
@@ -322,7 +259,67 @@ static inline bool is_valid_response(RawResponce *response, uint8_t frame_number
     return response->data[3] == crc(response->data, 3U);
 }
 
-// Обработка неудачного запроса
+static inline void write_events(LedControllerContext *controller,
+                                RawResponce response)
+{
+    uint32_t data = (uint32_t)response.data[2] |
+                    ((uint32_t)response.data[1] << 8) |
+                    ((uint32_t)((response.data[0] >> 3) & 0x0FU) << 16);
+
+    ButtonStatus *buttons = &controller->buttons;
+
+    buttons->S1  = (ButtonEvent)((data >> 0) & 0x03U);
+    buttons->S2  = (ButtonEvent)((data >> 2) & 0x03U);
+    buttons->S3  = (ButtonEvent)((data >> 4) & 0x03U);
+    buttons->S4  = (ButtonEvent)((data >> 6) & 0x03U);
+    buttons->S5  = (ButtonEvent)((data >> 8) & 0x03U);
+    buttons->S6  = (ButtonEvent)((data >> 10) & 0x03U);
+    buttons->S7  = (ButtonEvent)((data >> 12) & 0x03U);
+    buttons->S8  = (ButtonEvent)((data >> 14) & 0x03U);
+    buttons->S9  = (ButtonEvent)((data >> 16) & 0x03U);
+    buttons->S10 = (ButtonEvent)((data >> 18) & 0x03U);
+}
+
+static inline ButtonStatus take_button_events(uint8_t index)
+{
+    LedControllerContext *controller = &controllers[index];
+
+    ButtonStatus status = controller->buttons;
+
+    status.ready = 1U;
+    status.source = index == 0U ? REMOTE_1 : REMOTE_2;
+
+    controller->frame_number =
+        (uint8_t)((controller->frame_number + 1U) & 0x03U);
+
+    controller->exchange_state = LED_EXCHANGE_IDLE;
+
+    return status;
+}
+
+ButtonStatus LedController_GetButtons(void)
+{
+    if (controllers[0].exchange_state == LED_EXCHANGE_EVENTS_PENDING)
+    {
+        return take_button_events(0);
+    }
+
+    if (controllers[1].exchange_state == LED_EXCHANGE_EVENTS_PENDING)
+    {
+        return take_button_events(1);
+    }
+
+    ButtonStatus status = {0};
+    status.source = OUTSOURCE;
+
+    return status;
+}
+
+
+// ============================================================================
+// Восстановление связи
+// ============================================================================
+
 static inline void register_failed_request(LedControllerContext *controller)
 {
     if (controller->link_state == LED_LINK_NORMAL)
@@ -337,20 +334,59 @@ static inline void register_failed_request(LedControllerContext *controller)
         controller->link_state = LED_LINK_RECOVERY;
     }
 
-    controller->frame_number = (uint8_t)((controller->frame_number + 1U) & 0x03U);
+    controller->frame_number =
+        (uint8_t)((controller->frame_number + 1U) & 0x03U);
 }
 
+static void print_recovery_diagnostics(USART_TypeDef *USARTx,
+                                       LedControllerContext *controller)
+{
+    LedRawDiagnostics diagnostics;
+
+    led_raw_get_diagnostics(USARTx, &diagnostics);
+
+    uint32_t phase = ((controller->recovery_attempts - 1U) /
+        LED_RECOVERY_SHIFT_PERIOD) % 3U;
+
+    printf("RECOVERY: Remote %u, attempt %lu, frame %u, phase %lu\r\n",
+        USARTx == USART2 ? 1U : 2U,
+        (unsigned long)controller->recovery_attempts,
+        (unsigned)controller->frame_number,
+        (unsigned long)phase
+    );
+
+    printf("RX=%lu PACKETS=%lu CRC=%lu FRAME=%lu ORE=%lu FE=%lu NE=%lu\r\n",
+        (unsigned long)diagnostics.rx_bytes,
+        (unsigned long)diagnostics.packets,
+        (unsigned long)controller->crc_errors,
+        (unsigned long)controller->frame_errors,
+        (unsigned long)diagnostics.ore_errors,
+        (unsigned long)diagnostics.fe_errors,
+        (unsigned long)diagnostics.ne_errors
+    );
+}
+
+
+// ============================================================================
 // Обслуживание одного пульта
-static inline void process_controller(USART_TypeDef *USARTx, LedControllerContext *controller,
-                                      uint32_t current_tick, uint8_t send_tick)
+// ============================================================================
+
+static void process_controller(
+    USART_TypeDef *USARTx,
+    LedControllerContext *controller,
+    uint32_t current_tick,
+    uint8_t send_tick
+)
 {
     RawResponce response;
 
+    // Ответ ожидает обработки приложением
     if (controller->exchange_state == LED_EXCHANGE_EVENTS_PENDING)
     {
         return;
     }
 
+    // Ожидание ответа на ранее отправленный запрос
     if (controller->exchange_state == LED_EXCHANGE_WAIT_RESPONSE)
     {
         if (led_raw_take_response(USARTx, &response))
@@ -375,6 +411,7 @@ static inline void process_controller(USART_TypeDef *USARTx, LedControllerContex
 
                 return;
             }
+
             if (response.data[3] != crc(response.data, 3U))
             {
                 controller->crc_errors++;
@@ -385,18 +422,20 @@ static inline void process_controller(USART_TypeDef *USARTx, LedControllerContex
                 controller->frame_errors++;
             }
         }
-        else if ((uint32_t)(current_tick - controller->request_tick) < LED_RESPONSE_TIMEOUT_MS)
+        else if ((uint32_t)(current_tick - controller->request_tick) <
+                 LED_RESPONSE_TIMEOUT_MS)
         {
             return;
         }
 
-        // Нет валидного ответа
+        // Ответ отсутствует или некорректен
         led_raw_cancel_response(USARTx);
         register_failed_request(controller);
 
         controller->exchange_state = LED_EXCHANGE_IDLE;
     }
 
+    // Отправка разрешена только по флагу TIM6
     if (!send_tick)
     {
         return;
@@ -412,59 +451,77 @@ static inline void process_controller(USART_TypeDef *USARTx, LedControllerContex
         controller->recovery_attempts++;
 
         if (controller->recovery_attempts > 1U &&
-            (controller->recovery_attempts - 1U) % LED_RECOVERY_SHIFT_PERIOD == 0U)
+            (controller->recovery_attempts - 1U) %
+            LED_RECOVERY_SHIFT_PERIOD == 0U)
         {
             add_padding = true;
         }
 
         if (controller->recovery_attempts % LED_RECOVERY_LOG_PERIOD == 0U)
         {
-            // FIXME: удалить, когда будет 2 пульта
-            if(USARTx == UART4)
-            {
-                return;
-            }
-            LedRawDiagnostics diagnostics;
-
-            led_raw_get_diagnostics(USARTx, &diagnostics);
-
-            uint32_t phase = ((controller->recovery_attempts - 1U) /
-                LED_RECOVERY_SHIFT_PERIOD) % 3U;
-
-            printf("RECOVERY: Remote %u, attempt %lu, frame %u, phase %lu\r\n",
-                USARTx == USART2 ? 1U : 2U,
-                (unsigned long)controller->recovery_attempts,
-                (unsigned)controller->frame_number,
-                (unsigned long)phase
-            );
-
-            printf("RX=%lu PACKETS=%lu CRC=%lu FRAME=%lu ORE=%lu FE=%lu NE=%lu\r\n",
-                (unsigned long)diagnostics.rx_bytes,
-                (unsigned long)diagnostics.packets,
-                (unsigned long)controller->crc_errors,
-                (unsigned long)controller->frame_errors,
-                (unsigned long)diagnostics.ore_errors,
-                (unsigned long)diagnostics.fe_errors,
-                (unsigned long)diagnostics.ne_errors
-            );
+            print_recovery_diagnostics(USARTx, controller);
         }
     }
 
-    if (add_padding)
-    {
-        SetLedStateCommand command = formSetLedStateCommand(controller->frame_number);
-        send_command_sync_padded(USARTx, command);
-    }
-    else
-    {
-        send_SetLedState(USARTx);
-    }
-
+    send_led_command(USARTx, controller->frame_number, add_padding);
 }
 
-void led_controller_process(uint32_t current_tick)
+
+// ============================================================================
+// Таймер TIM6
+// ============================================================================
+
+static inline uint8_t take_send_tick(void)
 {
-    uint8_t send_tick = can_send_command();
+    if (is_send_command)
+    {
+        is_send_command = 0U;
+        return 1U;
+    }
+
+    return 0U;
+}
+
+void tim6_handler(void)
+{
+    is_send_command = 1U;
+    tim6_callback();
+}
+
+__attribute__((weak)) void tim6_callback(void)
+{
+}
+
+
+// ============================================================================
+// Инициализация и общее обслуживание
+// ============================================================================
+
+void LedController_Init(void)
+{
+    steady_state = 0U;
+    blink_phase = 0U;
+    is_send_command = 0U;
+
+    for (uint8_t i = 0; i < LED_COUNT; i++)
+    {
+        blinking[i] = (BlinkState){0};
+    }
+
+    for (uint8_t i = 0; i < LED_REMOTE_COUNT; i++)
+    {
+        controllers[i] = (LedControllerContext){0};
+    }
+
+    led_controller_usart_init();
+    TIM6_Init();
+}
+
+void LedController_Update(uint32_t current_tick)
+{
+    process_blinking(current_tick);
+
+    uint8_t send_tick = take_send_tick();
 
     process_controller(USART2, &controllers[0], current_tick, send_tick);
     process_controller(UART4, &controllers[1], current_tick, send_tick);

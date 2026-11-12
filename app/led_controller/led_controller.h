@@ -2,41 +2,10 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stm32f4xx_ll_usart.h>
 
-typedef struct
-{
-    bool VD1;
-    bool VD2;
-    bool VD3;
-    bool VD4;
-    bool VD5;
-    bool VD6;
-    bool VD7;
-    bool VD8;
-    bool VD9;
-    bool VD10;
-    bool VD11;
-} Leds;
+#include "button_combo/source.h"
 
-typedef struct
-{
-    uint8_t data[3];
-} SetLedStateCommand;
-
-typedef struct
-{
-    uint8_t data[4];
-} RawResponce;
-
-typedef enum
-{
-    NO_EVENT,
-    SHORT_EVENT,
-    DOUBLE_SHORT,
-    LONG_EVENT
-} ButtonEvent;
-
+// Светодиоды
 #define LED_VD1  (1U << 0)
 #define LED_VD2  (1U << 1)
 #define LED_VD3  (1U << 2)
@@ -51,10 +20,19 @@ typedef enum
 
 #define LED_ALL ((1U << 11) - 1U)
 
+// События кнопок
+typedef enum
+{
+    NO_EVENT,
+    SHORT_EVENT,
+    DOUBLE_SHORT,
+    LONG_EVENT
+} ButtonEvent;
+
 typedef struct
 {
     uint8_t ready;
-    USART_TypeDef *active_remote;
+    source_t source;
 
     ButtonEvent S1;
     ButtonEvent S2;
@@ -68,38 +46,33 @@ typedef struct
     ButtonEvent S10;
 } ButtonStatus;
 
-ButtonStatus poll_button_events(void);
+// Инициализация и обслуживание
+void LedController_Init(void);
+void LedController_Update(uint32_t current_tick);
+ButtonStatus LedController_GetButtons(void);
 
-/* USART, с которого пришло последнее событие кнопок. */
-USART_TypeDef *led_controller_active_usart(void);
+// Управление светодиодами
+/// @brief Зажечь или погасить указанные светодиоды enabled = true (зажечь) enabled = false (погасить)
+void LedController_Set(uint16_t mask, bool enabled);
+/// @brief Указанные светодиоды зажечь, неуказанные будут погашены
+void LedController_SetAll(uint16_t mask);
+uint16_t LedController_Get(uint16_t mask);
 
-void set_all_leds(uint16_t mask);
-uint16_t get_leds(uint16_t mask);
-void set_leds(uint16_t mask, bool enabled);
-void send_SetLedState(USART_TypeDef *USARTx);
+// Мигание светодиодов
+void LedController_Blink(uint16_t mask, uint16_t count, uint32_t period_ms);
+void LedController_StopBlink(uint16_t mask);
 
+// Обработчик таймера и callback
 void tim6_handler(void);
 void tim6_callback(void);
-uint8_t can_send_command(void);
-void LedController_PeriphInit(void);
 
-typedef enum
+// Типы для низкоуровневого драйвера led_raw
+typedef struct
 {
-    VD1, VD2, VD3, VD4, VD5, VD6, VD7, VD8, VD9, VD10, VD11,
-    LED_BLINKING_COUNT
-} blinking_led_t;
+    uint8_t data[3];
+} SetLedStateCommand;
 
-/*
- * count полных циклов (2 * count переключений).
- * Первое переключение немедленное; period_ms — интервал переключений.
- * count == 0 отменяет мигание, сохраняя текущее состояние.
- */
-void request_blinking(blinking_led_t led, uint16_t count, uint32_t period_ms);
-void blinking_process(uint32_t current_tick);
-void led_controller_process(uint32_t uptime_ms);
-
-/*
- * Управление светодиодами, обменом и опрос событий — из основного цикла.
- * tim6_handler вызывается в ISR. Состояние LED общее для обоих пультов.
- * Для каждого USART отдельные RX, номер кадра и ожидание ответа.
- */
+typedef struct
+{
+    uint8_t data[4];
+} RawResponce;

@@ -423,7 +423,6 @@ int main(void)
     aic3104_init();
     i2s_dma_init();
     debounce_init(debounced_pins, DEBOUNCE_INPUT_COUNT, DEBOUNCE_PERIOD_MS);
-    set_all_leds(LED_VD1);
 
     mute_amplifiers();
 
@@ -433,12 +432,12 @@ int main(void)
         debounce_process(uptime_ms);
         process_achtung_button();
         process_trk_button();
-        
-        led_controller_process(uptime_ms);
-        ButtonStatus button_status = poll_button_events();
 
+        LedController_Update(uptime_ms);
+
+        ButtonStatus button_status = LedController_GetButtons();
         process_button_combinations(&button_status, uptime_ms);
-        blinking_process(uptime_ms);
+
         process_state_logic();
         tud_task();
     }
@@ -458,7 +457,7 @@ void periph_init(void)
     GPIO_Init();
     NVIC_Init();
 
-    LedController_PeriphInit();
+    LedController_Init();
     i2c_init();
 
     /* Карта памяти и её подключение к дисковому интерфейсу. */

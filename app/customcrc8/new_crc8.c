@@ -3,7 +3,7 @@
 unsigned char update_crc( unsigned char b, unsigned char init_crc );
 
 
-unsigned char crc( unsigned char *command, unsigned char num_byte_pack )
+unsigned char crc(const unsigned char *command, unsigned char num_byte_pack )
 {
 	unsigned char i;
 	unsigned char init_crc = 0;

@@ -22,9 +22,11 @@
 #define CHANNEL_2                   (1U << 1)
 #define CHANNEL_PRM                 (1U << 2)
 #define ANNOUNCE_CHANNELS           (CHANNEL_1 | CHANNEL_2)
+
 #ifndef ANNOUNCE_REQUIRE_ALL_CHANNELS
 #define ANNOUNCE_REQUIRE_ALL_CHANNELS true
 #endif
+
 #define MODE_MASK(mode)             (UINT32_C(1) << (mode))
 #define NO_BUTTON                   (-1)
 #define NO_OUTPUT                   (-1)
@@ -38,7 +40,8 @@
 typedef enum
 {
     ALERT = 0, ACHTUNG, RECEIVE, GGS1, GGS2, APB1, APB2,
-    ANNOUNCE, PHRASE, RECORD, MODE_COUNT
+    ANNOUNCE, PHRASE, RECORD, 
+    MODE_COUNT
 } app_mode_t;
 
 typedef enum
@@ -56,12 +59,16 @@ typedef struct
 
 typedef struct
 {
+    // состояние машины
     uint32_t active_modes;
     mode_params_t modes[MODE_COUNT];
+    // кнопки trk и achtung
     bool last_achtung;
     bool last_trk;
+    // режим receive
     bool auto_receive;
     uint32_t receive_timeout_started_ms;
+    // режим announce
     bool auto_announce_1;
     bool auto_announce_2;
     uint32_t auto_announce_1_started_ms;
@@ -70,14 +77,17 @@ typedef struct
     uint8_t announce_channels;
     uint32_t announce_started_ms;
     int announce_button;
+    // режим фразы
     uint8_t phrase_number;
     int phrase_output;
     uint8_t phrase_channel;
     uint32_t phrase_started_ms;
+    // режим записи
     bool unlock_record;
     uint32_t unlock_record_started_ms;
     int record_button;
     bool record_invalid;
+    // громкость
     uint8_t volume[VOLUME_COUNT];
 } app_runtime_t;
 

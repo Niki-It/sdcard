@@ -14,8 +14,8 @@
 #define CODEC_I2C_GPIO_AF    LL_GPIO_AF_4
 
 #define AMP_PORT        GPIOB
-#define APB_PIN         LL_GPIO_PIN_6
-#define OPR_PIN         LL_GPIO_PIN_7
+#define RELAY_K1         LL_GPIO_PIN_6
+#define RELAY_K2         LL_GPIO_PIN_7
 #define MUTE_AMP1_PIN   LL_GPIO_PIN_8
 #define MUTE_AMP2_PIN   LL_GPIO_PIN_9
 

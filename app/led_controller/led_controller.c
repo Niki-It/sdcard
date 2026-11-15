@@ -11,6 +11,8 @@
 #define LED_MAX_FAILED_REQUESTS   20U
 #define LED_RECOVERY_LOG_PERIOD  100U
 #define LED_RECOVERY_SHIFT_PERIOD  4U
+#define LED_REMOTE_1_USART         UART4
+#define LED_REMOTE_2_USART         USART2
 
 typedef struct
 {
@@ -358,7 +360,7 @@ static void print_recovery_diagnostics(USART_TypeDef *USARTx,
         LED_RECOVERY_SHIFT_PERIOD) % 4U;
 
     printf("RECOVERY: Remote %u, attempt %lu, frame %u, phase %lu\r\n",
-        USARTx == USART2 ? 1U : 2U,
+        USARTx == LED_REMOTE_1_USART ? 1U : 2U,
         (unsigned long)controller->recovery_attempts,
         (unsigned)controller->frame_number,
         (unsigned long)phase
@@ -405,7 +407,7 @@ static void process_controller(
                 if (controller->link_state == LED_LINK_RECOVERY)
                 {
                     printf("RECOVERY OK: Remote %u, attempt %lu, frame %u\r\n",
-                        USARTx == USART2 ? 1U : 2U,
+                        USARTx == LED_REMOTE_1_USART ? 1U : 2U,
                         (unsigned long)controller->recovery_attempts,
                         (unsigned)controller->frame_number
                     );
@@ -532,6 +534,6 @@ void LedController_Update(uint32_t current_tick)
 
     uint8_t send_tick = take_send_tick();
 
-    process_controller(USART2, &controllers[0], current_tick, send_tick);
-    process_controller(UART4, &controllers[1], current_tick, send_tick);
+    process_controller(LED_REMOTE_1_USART, &controllers[0], current_tick, send_tick);
+    process_controller(LED_REMOTE_2_USART, &controllers[1], current_tick, send_tick);
 }

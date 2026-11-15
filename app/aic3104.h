@@ -30,7 +30,10 @@ void aic3104_write_reg(uint8_t reg, uint8_t val);
 uint8_t aic3104_read_reg(uint8_t reg);
 
 void aic3104_init_clocking(void);
-void aic3104_line1lp_hprout_bypass(void);
+void aic3104_line1lp_hplout_bypass(void);
+void aic3104_line1rp_hprout_bypass(void);
+void aic3104_line1lp_hplout_bypass_stop(void);
+void aic3104_line1rp_hprout_bypass_stop(void);
 void aic3104_line1lp_i2s(void);
 void aic3104_i2s_hprout();
 

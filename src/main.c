@@ -169,10 +169,13 @@ int main(void)
     tusb_init();
     fs_unit(true);
     aic3104_init();
+    aic3104_init_clocking();
+    printf("%d", aic3104_read_reg(101));
     i2s_dma_init();
     debounce_init(debounced_pins, DEBOUNCE_INPUT_COUNT, DEBOUNCE_PERIOD_MS);
 
-    mute_amplifiers();
+    mute_amplifier(0);
+    mute_amplifier(1);
 
     while (1)
     {
@@ -266,7 +269,10 @@ static void deactivate_mode(app_mode_t mode)
     printf("END %s\r\n", mode_names[mode]);
 }
 
-static void start_alert(source_t source) { activate_mode(ALERT, source, false); }
+static void start_alert(source_t source) 
+{
+     activate_mode(ALERT, source, false); 
+}
 static void end_alert(void) { deactivate_mode(ALERT); }
 static void start_achtung(void) { activate_mode(ACHTUNG, OUTSOURCE, false); }
 static void end_achtung(void) { deactivate_mode(ACHTUNG); }
@@ -292,12 +298,34 @@ static void end_receive(void)
 }
 static void start_transmission(app_mode_t mode, source_t source)
 {
-    /* TODO: включить соответствующий выход и микрофон источника. */
+    mux_channel_t channel = (mux_channel_t) source;
+    if(mode == GGS1 || mode == APB1)
+    {
+        mux_select(1, channel);
+        swich_relay(0, mode == GGS1 ? GGS : APB);
+        aic3104_line1rp_hprout_bypass();
+    }
+    else
+    {
+        mux_select(2, channel);
+        swich_relay(1, mode == GGS2 ? GGS : APB);
+        aic3104_line1lp_hplout_bypass();
+    }
+    unmute_amplifiers(mode == GGS2 ? GGS : APB);
     activate_mode(mode, source, true);
 }
 static void end_transmission(app_mode_t mode)
 {
-    /* TODO: выключить соответствующий выход. */
+    mux_channel_t channel = (mux_channel_t) app.modes[mode].source;
+    if(mode == GGS1 || mode == APB1)
+    {
+        aic3104_line1rp_hprout_bypass_stop();
+    }
+    else
+    {
+        aic3104_line1lp_hplout_bypass_stop();
+    }
+    mute_amplifier( mode == GGS2 ? GGS : APB);
     deactivate_mode(mode);
 }
 static void set_auto_announce_1(bool enabled)

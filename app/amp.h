@@ -1,12 +1,12 @@
 #pragma once
+#include "stdint.h"
 
-typedef enum 
+typedef enum relay_port_t
 {
-    GGC = 0,
-    APB = 1,
-    OPER = 2
-} RelayMode;
+    GGS,
+    APB
+} relay_port_t;
 
-void swich_relay(RelayMode mode);
-void mute_amplifiers(void);
-void unmute_amplifiers(void);
+void swich_relay(uint8_t relay, relay_port_t port);
+void mute_amplifier(uint8_t channel);
+void unmute_amplifiers(uint8_t channel);

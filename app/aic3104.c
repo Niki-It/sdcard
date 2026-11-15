@@ -6,6 +6,24 @@
 
 #define I2C_TIMEOUT_MS 50
 
+#define AIC3104_PAGE_0                  0x00
+#define AIC3104_REG_LINE1LP_LEFT_ADC   19
+#define AIC3104_REG_LINE1RP_RIGHT_ADC  22
+#define AIC3104_REG_LEFT_PGA_GAIN      15
+#define AIC3104_REG_RIGHT_PGA_GAIN     16
+#define AIC3104_REG_PGA_L_HPLOUT       46
+#define AIC3104_REG_DAC_L_HPLOUT       47
+#define AIC3104_REG_HPLOUT_LEVEL       51
+#define AIC3104_REG_PGA_R_HPROUT       63
+#define AIC3104_REG_DAC_R_HPROUT       64
+#define AIC3104_REG_HPROUT_LEVEL       65
+
+#define AIC3104_INPUT_0DB_ADC_ON       0x04
+#define AIC3104_PGA_0DB_UNMUTED        0x00
+#define AIC3104_ROUTE_ENABLE          0x80
+#define AIC3104_OUTPUT_ON_UNMUTED      0x09
+#define AIC3104_OUTPUT_OFF            0x04
+
 /* ============================================================================
  * Инициализация
  * ========================================================================== */
@@ -41,6 +59,27 @@ static uint8_t loud = 128 + 72;
 static uint8_t loud_max;
 static uint8_t loud_min;
 
+static void aic3104_update_active_route_volume(uint8_t reg)
+{
+    uint8_t value = aic3104_read_reg(reg);
+
+    // D7 = 0 означает отключённый маршрут. Изменение громкости не должно включать его снова.
+    if (value != 0xFF && (value & AIC3104_ROUTE_ENABLE) != 0)
+    {
+        aic3104_write_reg(reg, loud);
+    }
+}
+
+static void aic3104_update_volume(void)
+{
+    aic3104_write_reg(0x00, AIC3104_PAGE_0);
+
+    aic3104_update_active_route_volume(AIC3104_REG_PGA_L_HPLOUT);
+    aic3104_update_active_route_volume(AIC3104_REG_DAC_L_HPLOUT);
+    aic3104_update_active_route_volume(AIC3104_REG_PGA_R_HPROUT);
+    aic3104_update_active_route_volume(AIC3104_REG_DAC_R_HPROUT);
+}
+
 void aic3104_volume_down()
 {
 
@@ -60,10 +99,7 @@ void aic3104_volume_down()
     }
 
     loud = absolute | 0b10000000;
-    aic3104_write_reg(64, loud);
-    aic3104_write_reg(47, loud);
-    aic3104_write_reg(0x2E, loud);
-    aic3104_write_reg(0x3C, loud);
+    aic3104_update_volume();
 }
 
 void aic3104_volume_up()
@@ -84,10 +120,7 @@ void aic3104_volume_up()
     absolute -= 3;
 
     loud = absolute | 0b10000000;
-    aic3104_write_reg(64, loud);
-    aic3104_write_reg(47, loud);
-    aic3104_write_reg(0x2E, loud);
-    aic3104_write_reg(0x3C, loud);
+    aic3104_update_volume();
 }
 
 uint8_t is_max_volume(){
@@ -103,21 +136,48 @@ uint8_t is_min_volume(){
  * Режимы работы
  * ========================================================================== */
 
-void aic3104_line1lp_hprout_bypass(void) 
-{   
-    aic3104_write_reg(0x00, 0x00);
-    
-    // R 19: MIC1LP/LINE1LP to Left-ADC Control Register
-    aic3104_write_reg(0x13, 0x04);
-    
-    // R 15: Left-ADC PGA Gain Control Register
-    aic3104_write_reg(0x0F, 0x00);
+void aic3104_line1lp_hplout_bypass(void)
+{
+    aic3104_write_reg(0x00, AIC3104_PAGE_0);
 
-    // R 60: PGA_L to HPROUT Volume Control Register
-    aic3104_write_reg(0x3C, loud);
+    // LINE1LP -> PGA_L, 0 dB, single-ended; R19 D2 включает левый ADC.
+    aic3104_write_reg(AIC3104_REG_LINE1LP_LEFT_ADC, AIC3104_INPUT_0DB_ADC_ON);
+    aic3104_write_reg(AIC3104_REG_LEFT_PGA_GAIN, AIC3104_PGA_0DB_UNMUTED);
 
-    // R 65: HPROUT Output Level Control Register
-    aic3104_write_reg(0x41, 0x09);
+    // PGA_L -> HPLOUT, громкость из loud.
+    aic3104_write_reg(AIC3104_REG_PGA_L_HPLOUT, loud);
+    aic3104_write_reg(AIC3104_REG_HPLOUT_LEVEL, AIC3104_OUTPUT_ON_UNMUTED);
+}
+
+void aic3104_line1rp_hprout_bypass(void)
+{
+    aic3104_write_reg(0x00, AIC3104_PAGE_0);
+
+    // LINE1RP -> PGA_R, 0 dB, single-ended; R22 D2 включает правый ADC.
+    aic3104_write_reg(AIC3104_REG_LINE1RP_RIGHT_ADC, AIC3104_INPUT_0DB_ADC_ON);
+    aic3104_write_reg(AIC3104_REG_RIGHT_PGA_GAIN, AIC3104_PGA_0DB_UNMUTED);
+
+    // PGA_R -> HPROUT, громкость из loud.
+    aic3104_write_reg(AIC3104_REG_PGA_R_HPROUT, loud);
+    aic3104_write_reg(AIC3104_REG_HPROUT_LEVEL, AIC3104_OUTPUT_ON_UNMUTED);
+}
+
+void aic3104_line1lp_hplout_bypass_stop(void)
+{
+    aic3104_write_reg(0x00, AIC3104_PAGE_0);
+
+    // Отключить только PGA_L -> HPLOUT и сам HPLOUT.
+    aic3104_write_reg(AIC3104_REG_PGA_L_HPLOUT, 0x00);
+    aic3104_write_reg(AIC3104_REG_HPLOUT_LEVEL, AIC3104_OUTPUT_OFF);
+}
+
+void aic3104_line1rp_hprout_bypass_stop(void)
+{
+    aic3104_write_reg(0x00, AIC3104_PAGE_0);
+
+    // Отключить только PGA_R -> HPROUT и сам HPROUT.
+    aic3104_write_reg(AIC3104_REG_PGA_R_HPROUT, 0x00);
+    aic3104_write_reg(AIC3104_REG_HPROUT_LEVEL, AIC3104_OUTPUT_OFF);
 }
 
 void aic3104_line1lp_i2s(void)

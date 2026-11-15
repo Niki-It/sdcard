@@ -1,5 +1,6 @@
 python scripts/gen_sources.py - вызывать этот файл при создании и удалении .c файлов в проекте
 python scripts/bits.py - выводит биты числа.
+python scripts/remote_emulator.py
 tree /F - вывести структуру файлов директории
 
 Путь к SEGGER - C:\Program Files\SEGGER\JLink_V978

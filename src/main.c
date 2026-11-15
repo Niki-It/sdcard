@@ -304,28 +304,29 @@ static void start_transmission(app_mode_t mode, source_t source)
         mux_select(1, channel);
         swich_relay(0, mode == GGS1 ? GGS : APB);
         aic3104_line1rp_hprout_bypass();
+        unmute_amplifiers(0);
     }
     else
     {
         mux_select(2, channel);
         swich_relay(1, mode == GGS2 ? GGS : APB);
         aic3104_line1lp_hplout_bypass();
+        unmute_amplifiers(1);
     }
-    unmute_amplifiers(mode == GGS2 ? GGS : APB);
     activate_mode(mode, source, true);
 }
 static void end_transmission(app_mode_t mode)
 {
-    mux_channel_t channel = (mux_channel_t) app.modes[mode].source;
     if(mode == GGS1 || mode == APB1)
     {
         aic3104_line1rp_hprout_bypass_stop();
+        mute_amplifier(0);
     }
     else
     {
         aic3104_line1lp_hplout_bypass_stop();
+        mute_amplifier(1);
     }
-    mute_amplifier( mode == GGS2 ? GGS : APB);
     deactivate_mode(mode);
 }
 static void set_auto_announce_1(bool enabled)

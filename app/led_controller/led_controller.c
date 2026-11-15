@@ -352,6 +352,10 @@ static inline void register_failed_request(LedControllerContext *controller)
 static void print_recovery_diagnostics(USART_TypeDef *USARTx,
                                        LedControllerContext *controller)
 {
+    if(USARTx == USART2)
+    {
+        return;
+    }
     LedRawDiagnostics diagnostics;
 
     led_raw_get_diagnostics(USARTx, &diagnostics);

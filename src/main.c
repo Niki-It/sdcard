@@ -8,6 +8,7 @@
 #define ACHTUNG_INITIAL_LEVEL       true
 #define TRK_INITIAL_LEVEL           true
 #define INITIAL_ACTIVE_MODES        0U
+#define ALERT_FILENAME              "alarm.mp3"
 
 /* Один условный цикл Python заменён одной секундой реального времени. */
 #define RECEIVE_TIMEOUT_MS          3000U
@@ -22,6 +23,13 @@
 #define CHANNEL_2                   (1U << 1)
 #define CHANNEL_PRM                 (1U << 2)
 #define ANNOUNCE_CHANNELS           (CHANNEL_1 | CHANNEL_2)
+
+/* CHANNEL_1 = ГГС1, CHANNEL_2 = ГГС2, оба канала = CHANNEL_1 | CHANNEL_2. */
+#define ALERT_CHANNELS              (CHANNEL_1 | CHANNEL_2)
+
+#if (ALERT_CHANNELS == 0U) || ((ALERT_CHANNELS & ~(CHANNEL_1 | CHANNEL_2)) != 0U)
+#error "ALERT_CHANNELS: select CHANNEL_1, CHANNEL_2 or both"
+#endif
 
 #ifndef ANNOUNCE_REQUIRE_ALL_CHANNELS
 #define ANNOUNCE_REQUIRE_ALL_CHANNELS true
@@ -50,6 +58,52 @@ typedef enum
     VOLUME_APB2, VOLUME_ANNOUNCE, VOLUME_PHRASE_1, VOLUME_PHRASE_2,
     VOLUME_COUNT
 } volume_target_t;
+
+/* Логические линии не зависят от нумерации отдельных микросхем. */
+typedef enum
+{
+    TRANSMISSION_LINE_1,
+    TRANSMISSION_LINE_2,
+    TRANSMISSION_LINE_COUNT
+} transmission_line_t;
+
+typedef struct
+{
+    uint8_t mux_number;
+    uint8_t relay_number;
+    uint8_t amplifier_channel;
+    uint8_t channel_mask;
+    void (*start_bypass)(void);
+    void (*stop_bypass)(void);
+    void (*start_i2s)(void);
+    void (*stop_i2s)(void);
+} transmission_line_config_t;
+
+static const transmission_line_config_t transmission_lines[TRANSMISSION_LINE_COUNT] =
+{
+    [TRANSMISSION_LINE_1] =
+    {
+        .mux_number = 1U,
+        .relay_number = 0U,
+        .amplifier_channel = 0U,
+        .channel_mask = CHANNEL_1,
+        .start_bypass = aic3104_line1rp_hprout_bypass,
+        .stop_bypass = aic3104_line1rp_hprout_bypass_stop,
+        .start_i2s = aic3104_i2s_hprout,
+        .stop_i2s = aic3104_i2s_hprout_stop
+    },
+    [TRANSMISSION_LINE_2] =
+    {
+        .mux_number = 2U,
+        .relay_number = 1U,
+        .amplifier_channel = 1U,
+        .channel_mask = CHANNEL_2,
+        .start_bypass = aic3104_line1lp_hplout_bypass,
+        .stop_bypass = aic3104_line1lp_hplout_bypass_stop,
+        .start_i2s = aic3104_i2s_hplout,
+        .stop_i2s = aic3104_i2s_hplout_stop
+    }
+};
 
 typedef struct
 {
@@ -174,8 +228,10 @@ int main(void)
     i2s_dma_init();
     debounce_init(debounced_pins, DEBOUNCE_INPUT_COUNT, DEBOUNCE_PERIOD_MS);
 
-    mute_amplifier(0);
-    mute_amplifier(1);
+    for (unsigned line = 0U; line < TRANSMISSION_LINE_COUNT; ++line)
+    {
+        mute_amplifier(transmission_lines[line].amplifier_channel);
+    }
 
     while (1)
     {
@@ -239,6 +295,28 @@ static bool remote_source(source_t source)
     return source == REMOTE_1 || source == REMOTE_2;
 }
 
+static const transmission_line_config_t *transmission_line_for_mode(app_mode_t mode)
+{
+    switch (mode)
+    {
+        case GGS1:
+        case APB1:
+            return &transmission_lines[TRANSMISSION_LINE_1];
+
+        case GGS2:
+        case APB2:
+            return &transmission_lines[TRANSMISSION_LINE_2];
+
+        default:
+            return NULL;
+    }
+}
+
+static relay_port_t transmission_relay_for_mode(app_mode_t mode)
+{
+    return mode == GGS1 || mode == GGS2 ? GGS : APB;
+}
+
 static bool mode_is_active(app_mode_t mode)
 {
     return (app.active_modes & MODE_MASK(mode)) != 0U;
@@ -250,8 +328,7 @@ static bool modes_are_compatible(app_mode_t first, app_mode_t second)
            (mode_compatibility[second] & MODE_MASK(first)) != 0U;
 }
 
-/* Только действия входа/выхода. Условия допуска находятся в диспетчере.
- * Аппаратные действия и аудио пока остаются моками, как в Python. */
+/* Только действия входа/выхода. Условия допуска находятся в диспетчере. */
 static void activate_mode(app_mode_t mode, source_t source, bool is_holding)
 {
     app.modes[mode].source = source;
@@ -269,13 +346,125 @@ static void deactivate_mode(app_mode_t mode)
     printf("END %s\r\n", mode_names[mode]);
 }
 
-static void start_alert(source_t source) 
+static bool alert_line_enabled(const transmission_line_config_t *line)
 {
-     activate_mode(ALERT, source, false); 
+    return (ALERT_CHANNELS & line->channel_mask) != 0U;
 }
-static void end_alert(void) { deactivate_mode(ALERT); }
-static void start_achtung(void) { activate_mode(ACHTUNG, OUTSOURCE, false); }
-static void end_achtung(void) { deactivate_mode(ACHTUNG); }
+
+static void alert_set_amplifiers(bool enabled)
+{
+    for (unsigned i = 0U; i < TRANSMISSION_LINE_COUNT; ++i)
+    {
+        const transmission_line_config_t *line = &transmission_lines[i];
+
+        if (alert_line_enabled(line))
+        {
+            if (enabled)
+            {
+                unmute_amplifiers(line->amplifier_channel);
+            }
+            else
+            {
+                mute_amplifier(line->amplifier_channel);
+            }
+        }
+    }
+}
+
+static void alert_set_i2s(bool enabled)
+{
+    for (unsigned i = 0U; i < TRANSMISSION_LINE_COUNT; ++i)
+    {
+        const transmission_line_config_t *line = &transmission_lines[i];
+
+        if (alert_line_enabled(line))
+        {
+            if (enabled)
+            {
+                line->start_i2s();
+            }
+            else
+            {
+                line->stop_i2s();
+            }
+        }
+    }
+}
+
+static FRESULT alert_playback_start(void)
+{
+    alert_set_amplifiers(false);
+
+    aic3104_soft_reset();
+    aic3104_init_clocking();
+    alert_set_i2s(true);
+
+    FRESULT result = audio_playback_start(ALERT_FILENAME);
+
+    if (result != FR_OK)
+    {
+        alert_set_i2s(false);
+        return result;
+    }
+
+    alert_set_amplifiers(true);
+    printf("PLAYBACK START: %s\r\n", ALERT_FILENAME);
+
+    return FR_OK;
+}
+
+static void start_alert(source_t source)
+{
+    tud_disconnect();
+
+    for (unsigned i = 0U; i < TRANSMISSION_LINE_COUNT; ++i)
+    {
+        const transmission_line_config_t *line = &transmission_lines[i];
+
+        if (alert_line_enabled(line))
+        {
+            swich_relay(line->relay_number, GGS);
+        }
+    }
+
+    FRESULT result = alert_playback_start();
+
+    if (result != FR_OK)
+    {
+        printf("ALERT PLAYBACK ERROR: %d\r\n", (int)result);
+        tud_connect();
+        return;
+    }
+
+    activate_mode(ALERT, source, false);
+}
+
+static void end_alert(void)
+{
+    alert_set_amplifiers(false);
+
+    if (audio_playback_is_active())
+    {
+        FRESULT result = audio_playback_stop();
+
+        if (result != FR_OK)
+        {
+            printf("ALERT STOP ERROR: %d\r\n", (int)result);
+        }
+    }
+
+    alert_set_i2s(false);
+    deactivate_mode(ALERT);
+    tud_connect();
+}
+static void start_achtung(void) 
+{ 
+    activate_mode(ACHTUNG, OUTSOURCE, false);
+}
+static void end_achtung(void) 
+{ 
+    deactivate_mode(ACHTUNG); 
+}
 static void start_auto_receive(void)
 {
     app.auto_receive = true;
@@ -298,35 +487,25 @@ static void end_receive(void)
 }
 static void start_transmission(app_mode_t mode, source_t source)
 {
-    mux_channel_t channel = (mux_channel_t) source;
-    if(mode == GGS1 || mode == APB1)
-    {
-        mux_select(1, channel);
-        swich_relay(0, mode == GGS1 ? GGS : APB);
-        aic3104_line1rp_hprout_bypass();
-        unmute_amplifiers(0);
-    }
-    else
-    {
-        mux_select(2, channel);
-        swich_relay(1, mode == GGS2 ? GGS : APB);
-        aic3104_line1lp_hplout_bypass();
-        unmute_amplifiers(1);
-    }
+    const transmission_line_config_t *line = transmission_line_for_mode(mode);
+
+    mux_channel_t input = source == REMOTE_1 ? MUX_CHANNEL_X0 : MUX_CHANNEL_X1;
+
+    mux_select(line->mux_number, input);
+    swich_relay(line->relay_number, transmission_relay_for_mode(mode));
+    line->start_bypass();
+    unmute_amplifiers(line->amplifier_channel);
+
     activate_mode(mode, source, true);
 }
+
 static void end_transmission(app_mode_t mode)
 {
-    if(mode == GGS1 || mode == APB1)
-    {
-        aic3104_line1rp_hprout_bypass_stop();
-        mute_amplifier(0);
-    }
-    else
-    {
-        aic3104_line1lp_hplout_bypass_stop();
-        mute_amplifier(1);
-    }
+    const transmission_line_config_t *line = transmission_line_for_mode(mode);
+
+    line->stop_bypass();
+    mute_amplifier(line->amplifier_channel);
+
     deactivate_mode(mode);
 }
 static void set_auto_announce_1(bool enabled)
@@ -422,7 +601,31 @@ static void set_volume(volume_target_t target, uint8_t value)
 }
 
 /* Периодические обработчики не содержат блокирующих ожиданий. */
-static handler_responce_t process_alert(void) { return HANDLER_PROCESSING; }
+static handler_responce_t process_alert(void)
+{
+    FRESULT result = audio_playback_task();
+
+    if (result != FR_OK)
+    {
+        printf("ALERT PLAYBACK ERROR: %d\r\n", (int)result);
+        return HANDLER_ERROR;
+    }
+
+    if (!audio_playback_is_active())
+    {
+        printf("PLAYBACK FINISHED: %s\r\n", ALERT_FILENAME);
+
+        result = alert_playback_start();
+
+        if (result != FR_OK)
+        {
+            printf("ALERT RESTART ERROR: %d\r\n", (int)result);
+            return HANDLER_ERROR;
+        }
+    }
+
+    return HANDLER_PROCESSING;
+}
 static handler_responce_t process_achtung(void) { return HANDLER_PROCESSING; }
 static handler_responce_t process_receive(void) { return HANDLER_PROCESSING; }
 static handler_responce_t process_manual_announce(void) { return HANDLER_PROCESSING; }
@@ -845,7 +1048,7 @@ static void process_state_event(app_event_t event, source_t source, int button)
                 if (mode_is_active(active) && active != RECEIVE && active != RECORD &&
                     !modes_are_compatible(mode, active)) return;
             if (mode_is_active(RECEIVE)) end_receive();
-            uint8_t channel = (mode == GGS2 || mode == APB2) ? CHANNEL_2 : CHANNEL_1;
+            uint8_t channel = transmission_line_for_mode(mode)->channel_mask;
             if (mode_is_active(ANNOUNCE) && (app.announce_channels & channel) != 0U)
             {
                 uint8_t remaining = (uint8_t)(app.announce_channels & (uint8_t)~channel);
@@ -1032,7 +1235,7 @@ static void process_state_event(app_event_t event, source_t source, int button)
 
 static void process_state_logic(void)
 {
-    if (mode_is_active(ALERT)) process_alert();
+    if (mode_is_active(ALERT) && process_alert() == HANDLER_ERROR) end_alert();
     if (mode_is_active(ACHTUNG)) process_achtung();
     if (mode_is_active(RECEIVE))
     {

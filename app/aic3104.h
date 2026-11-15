@@ -35,7 +35,10 @@ void aic3104_line1rp_hprout_bypass(void);
 void aic3104_line1lp_hplout_bypass_stop(void);
 void aic3104_line1rp_hprout_bypass_stop(void);
 void aic3104_line1lp_i2s(void);
-void aic3104_i2s_hprout();
+void aic3104_i2s_hprout(void);
+void aic3104_i2s_hplout(void);
+void aic3104_i2s_hprout_stop(void);
+void aic3104_i2s_hplout_stop(void);
 
 void aic3104_volume_up();
 void aic3104_volume_down();

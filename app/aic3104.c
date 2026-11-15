@@ -1,5 +1,6 @@
 #include "aic3104.h"
 #include "i2c.h"
+#include <stdbool.h>
 #include "stm32f4xx_ll_bus.h"
 #include "stm32f4xx_ll_gpio.h"
 #include "stm32f4xx_ll_utils.h"
@@ -17,6 +18,21 @@
 #define AIC3104_REG_PGA_R_HPROUT       63
 #define AIC3104_REG_DAC_R_HPROUT       64
 #define AIC3104_REG_HPROUT_LEVEL       65
+#define AIC3104_REG_DAC_DATA_PATH      7
+#define AIC3104_REG_DAC_POWER          37
+#define AIC3104_REG_DAC_OUTPUT_SELECT  41
+#define AIC3104_REG_LEFT_DAC_VOLUME    43
+#define AIC3104_REG_RIGHT_DAC_VOLUME   44
+
+#define AIC3104_LEFT_DAC_PATH_MASK     0x18U
+#define AIC3104_RIGHT_DAC_PATH_MASK    0x06U
+#define AIC3104_LEFT_DAC_FROM_LEFT     0x08U
+#define AIC3104_RIGHT_DAC_MONO_MIX     0x06U
+#define AIC3104_LEFT_DAC_POWER         0x80U
+#define AIC3104_RIGHT_DAC_POWER        0x40U
+#define AIC3104_DAC_UNMUTED            0x00U
+#define AIC3104_DAC_MUTED              0x80U
+#define AIC3104_I2S_OUTPUT_ON          0x0DU
 
 #define AIC3104_INPUT_0DB_ADC_ON       0x04
 #define AIC3104_PGA_0DB_UNMUTED        0x00
@@ -196,27 +212,76 @@ void aic3104_line1lp_i2s(void)
     aic3104_write_reg(107, 0x30);
 }
 
-void aic3104_i2s_hprout(){
-        // Page 0
-    aic3104_write_reg(0, 0x00);
+/* R7 и R37 общие для обоих DAC. Меняем только биты нужного канала. */
+static bool aic3104_update_reg_bits(uint8_t reg, uint8_t mask, uint8_t value)
+{
+    uint8_t current = aic3104_read_reg(reg);
+    if (current == 0xFFU) return false;
 
-    // R7: Right DAC mono mix, Normal Rate
-    aic3104_write_reg(7, 0b00000110);
+    aic3104_write_reg(reg, (uint8_t)((current & (uint8_t)~mask) | (value & mask)));
+    return true;
+}
 
-    // R37: включить Right DAC
-    aic3104_write_reg(37, 0x40);
+void aic3104_i2s_hprout(void)
+{
+    aic3104_write_reg(0, AIC3104_PAGE_0);
 
-    // R41: Left DAC -> DAC_L1, Right DAC -> DAC_R1
-    aic3104_write_reg(41, 0x00);
+    // Right DAC получает моносумму входных I2S каналов.
+    if (!aic3104_update_reg_bits(AIC3104_REG_DAC_DATA_PATH,
+                                 AIC3104_RIGHT_DAC_PATH_MASK, AIC3104_RIGHT_DAC_MONO_MIX)) return;
 
-    // R43: Right DAC, 0 dB, Mute OFF
-    aic3104_write_reg(44, 0x00);
+    if (!aic3104_update_reg_bits(AIC3104_REG_DAC_POWER,
+                                 AIC3104_RIGHT_DAC_POWER, AIC3104_RIGHT_DAC_POWER)) return;
 
-    // R47: подключить DAC_L1 -> HPROUT, loud
-    aic3104_write_reg(64, loud);
+    aic3104_write_reg(AIC3104_REG_DAC_OUTPUT_SELECT, 0x00);
+    aic3104_write_reg(AIC3104_REG_RIGHT_DAC_VOLUME, AIC3104_DAC_UNMUTED);
+    aic3104_write_reg(AIC3104_REG_DAC_R_HPROUT, loud);
+    aic3104_write_reg(AIC3104_REG_HPROUT_LEVEL, AIC3104_I2S_OUTPUT_ON);
+}
 
-    // R51: HPROUT Power ON, Mute OFF, 0 dB
-    aic3104_write_reg(65, 0x0D);
+void aic3104_i2s_hplout(void)
+{
+    aic3104_write_reg(0, AIC3104_PAGE_0);
+
+    // Left DAC получает левый входной канал I2S.
+    if (!aic3104_update_reg_bits(AIC3104_REG_DAC_DATA_PATH,
+                                 AIC3104_LEFT_DAC_PATH_MASK, AIC3104_LEFT_DAC_FROM_LEFT)) return;
+
+    if (!aic3104_update_reg_bits(AIC3104_REG_DAC_POWER,
+                                 AIC3104_LEFT_DAC_POWER, AIC3104_LEFT_DAC_POWER)) return;
+
+    aic3104_write_reg(AIC3104_REG_DAC_OUTPUT_SELECT, 0x00);
+    aic3104_write_reg(AIC3104_REG_LEFT_DAC_VOLUME, AIC3104_DAC_UNMUTED);
+    aic3104_write_reg(AIC3104_REG_DAC_L_HPLOUT, loud);
+    aic3104_write_reg(AIC3104_REG_HPLOUT_LEVEL, AIC3104_I2S_OUTPUT_ON);
+}
+
+void aic3104_i2s_hprout_stop(void)
+{
+    aic3104_write_reg(0, AIC3104_PAGE_0);
+
+    aic3104_write_reg(AIC3104_REG_HPROUT_LEVEL, AIC3104_OUTPUT_OFF);
+    aic3104_write_reg(AIC3104_REG_DAC_R_HPROUT, 0x00);
+    aic3104_write_reg(AIC3104_REG_RIGHT_DAC_VOLUME, AIC3104_DAC_MUTED);
+
+    if (!aic3104_update_reg_bits(AIC3104_REG_DAC_POWER,
+                                 AIC3104_RIGHT_DAC_POWER, 0x00)) return;
+
+    aic3104_update_reg_bits(AIC3104_REG_DAC_DATA_PATH, AIC3104_RIGHT_DAC_PATH_MASK, 0x00);
+}
+
+void aic3104_i2s_hplout_stop(void)
+{
+    aic3104_write_reg(0, AIC3104_PAGE_0);
+
+    aic3104_write_reg(AIC3104_REG_HPLOUT_LEVEL, AIC3104_OUTPUT_OFF);
+    aic3104_write_reg(AIC3104_REG_DAC_L_HPLOUT, 0x00);
+    aic3104_write_reg(AIC3104_REG_LEFT_DAC_VOLUME, AIC3104_DAC_MUTED);
+
+    if (!aic3104_update_reg_bits(AIC3104_REG_DAC_POWER,
+                                 AIC3104_LEFT_DAC_POWER, 0x00)) return;
+
+    aic3104_update_reg_bits(AIC3104_REG_DAC_DATA_PATH, AIC3104_LEFT_DAC_PATH_MASK, 0x00);
 }
 
 

@@ -9,6 +9,7 @@
 #define TRK_INITIAL_LEVEL           true
 #define INITIAL_ACTIVE_MODES        0U
 #define ALERT_FILENAME              "alarm.mp3"
+#define ACHTUNG_FILENAME            "fire.mp3"
 
 /* Один условный цикл Python заменён одной секундой реального времени. */
 #define RECEIVE_TIMEOUT_MS          3000U
@@ -26,9 +27,14 @@
 
 /* CHANNEL_1 = ГГС1, CHANNEL_2 = ГГС2, оба канала = CHANNEL_1 | CHANNEL_2. */
 #define ALERT_CHANNELS              (CHANNEL_1 | CHANNEL_2)
+#define ACHTUNG_CHANNELS            (CHANNEL_1 | CHANNEL_2)
 
 #if (ALERT_CHANNELS == 0U) || ((ALERT_CHANNELS & ~(CHANNEL_1 | CHANNEL_2)) != 0U)
 #error "ALERT_CHANNELS: select CHANNEL_1, CHANNEL_2 or both"
+#endif
+
+#if (ACHTUNG_CHANNELS == 0U) || ((ACHTUNG_CHANNELS & ~(CHANNEL_1 | CHANNEL_2)) != 0U)
+#error "ACHTUNG_CHANNELS: select CHANNEL_1, CHANNEL_2 or both"
 #endif
 
 #ifndef ANNOUNCE_REQUIRE_ALL_CHANNELS
@@ -346,18 +352,18 @@ static void deactivate_mode(app_mode_t mode)
     printf("END %s\r\n", mode_names[mode]);
 }
 
-static bool alert_line_enabled(const transmission_line_config_t *line)
+static bool playback_line_enabled(const transmission_line_config_t *line, uint8_t channels)
 {
-    return (ALERT_CHANNELS & line->channel_mask) != 0U;
+    return (channels & line->channel_mask) != 0U;
 }
 
-static void alert_set_amplifiers(bool enabled)
+static void playback_set_amplifiers(uint8_t channels, bool enabled)
 {
     for (unsigned i = 0U; i < TRANSMISSION_LINE_COUNT; ++i)
     {
         const transmission_line_config_t *line = &transmission_lines[i];
 
-        if (alert_line_enabled(line))
+        if (playback_line_enabled(line, channels))
         {
             if (enabled)
             {
@@ -371,13 +377,13 @@ static void alert_set_amplifiers(bool enabled)
     }
 }
 
-static void alert_set_i2s(bool enabled)
+static void playback_set_i2s(uint8_t channels, bool enabled)
 {
     for (unsigned i = 0U; i < TRANSMISSION_LINE_COUNT; ++i)
     {
         const transmission_line_config_t *line = &transmission_lines[i];
 
-        if (alert_line_enabled(line))
+        if (playback_line_enabled(line, channels))
         {
             if (enabled)
             {
@@ -391,29 +397,34 @@ static void alert_set_i2s(bool enabled)
     }
 }
 
-static FRESULT alert_playback_start(void)
+static FRESULT playback_start_file(const char *filename, uint8_t channels)
 {
-    alert_set_amplifiers(false);
+    playback_set_amplifiers(channels, false);
 
     aic3104_soft_reset();
     aic3104_init_clocking();
-    alert_set_i2s(true);
+    playback_set_i2s(channels, true);
 
-    FRESULT result = audio_playback_start(ALERT_FILENAME);
+    FRESULT result = audio_playback_start(filename);
 
     if (result != FR_OK)
     {
-        alert_set_i2s(false);
+        playback_set_i2s(channels, false);
         return result;
     }
 
-    alert_set_amplifiers(true);
-    printf("PLAYBACK START: %s\r\n", ALERT_FILENAME);
+    playback_set_amplifiers(channels, true);
+    printf("PLAYBACK START: %s\r\n", filename);
 
     return FR_OK;
 }
 
-static void start_alert(source_t source)
+static void playback_start_mode(
+    app_mode_t mode,
+    source_t source,
+    uint8_t channels,
+    const char *filename
+)
 {
     tud_disconnect();
 
@@ -421,27 +432,27 @@ static void start_alert(source_t source)
     {
         const transmission_line_config_t *line = &transmission_lines[i];
 
-        if (alert_line_enabled(line))
+        if (playback_line_enabled(line, channels))
         {
             swich_relay(line->relay_number, GGS);
         }
     }
 
-    FRESULT result = alert_playback_start();
+    FRESULT result = playback_start_file(filename, channels);
 
     if (result != FR_OK)
     {
-        printf("ALERT PLAYBACK ERROR: %d\r\n", (int)result);
+        printf("%s PLAYBACK ERROR: %d\r\n", mode_names[mode], (int)result);
         tud_connect();
         return;
     }
 
-    activate_mode(ALERT, source, false);
+    activate_mode(mode, source, false);
 }
 
-static void end_alert(void)
+static void playback_end_mode(app_mode_t mode, uint8_t channels)
 {
-    alert_set_amplifiers(false);
+    playback_set_amplifiers(channels, false);
 
     if (audio_playback_is_active())
     {
@@ -449,22 +460,35 @@ static void end_alert(void)
 
         if (result != FR_OK)
         {
-            printf("ALERT STOP ERROR: %d\r\n", (int)result);
+            printf("%s STOP ERROR: %d\r\n", mode_names[mode], (int)result);
         }
     }
 
-    alert_set_i2s(false);
-    deactivate_mode(ALERT);
+    playback_set_i2s(channels, false);
+    deactivate_mode(mode);
     tud_connect();
 }
-static void start_achtung(void) 
-{ 
-    activate_mode(ACHTUNG, OUTSOURCE, false);
+
+static void start_alert(source_t source)
+{
+    playback_start_mode(ALERT, source, ALERT_CHANNELS, ALERT_FILENAME);
 }
-static void end_achtung(void) 
-{ 
-    deactivate_mode(ACHTUNG); 
+
+static void end_alert(void)
+{
+    playback_end_mode(ALERT, ALERT_CHANNELS);
 }
+
+static void start_achtung(void)
+{
+    playback_start_mode(ACHTUNG, OUTSOURCE, ACHTUNG_CHANNELS, ACHTUNG_FILENAME);
+}
+
+static void end_achtung(void)
+{
+    playback_end_mode(ACHTUNG, ACHTUNG_CHANNELS);
+}
+
 static void start_auto_receive(void)
 {
     app.auto_receive = true;
@@ -601,32 +625,46 @@ static void set_volume(volume_target_t target, uint8_t value)
 }
 
 /* Периодические обработчики не содержат блокирующих ожиданий. */
-static handler_responce_t process_alert(void)
+static handler_responce_t process_playback(
+    app_mode_t mode,
+    uint8_t channels,
+    const char *filename
+)
 {
     FRESULT result = audio_playback_task();
 
     if (result != FR_OK)
     {
-        printf("ALERT PLAYBACK ERROR: %d\r\n", (int)result);
+        printf("%s PLAYBACK ERROR: %d\r\n", mode_names[mode], (int)result);
         return HANDLER_ERROR;
     }
 
     if (!audio_playback_is_active())
     {
-        printf("PLAYBACK FINISHED: %s\r\n", ALERT_FILENAME);
+        printf("PLAYBACK FINISHED: %s\r\n", filename);
 
-        result = alert_playback_start();
+        result = playback_start_file(filename, channels);
 
         if (result != FR_OK)
         {
-            printf("ALERT RESTART ERROR: %d\r\n", (int)result);
+            printf("%s RESTART ERROR: %d\r\n", mode_names[mode], (int)result);
             return HANDLER_ERROR;
         }
     }
 
     return HANDLER_PROCESSING;
 }
-static handler_responce_t process_achtung(void) { return HANDLER_PROCESSING; }
+
+static handler_responce_t process_alert(void)
+{
+    return process_playback(ALERT, ALERT_CHANNELS, ALERT_FILENAME);
+}
+
+static handler_responce_t process_achtung(void)
+{
+    return process_playback(ACHTUNG, ACHTUNG_CHANNELS, ACHTUNG_FILENAME);
+}
+
 static handler_responce_t process_receive(void) { return HANDLER_PROCESSING; }
 static handler_responce_t process_manual_announce(void) { return HANDLER_PROCESSING; }
 static handler_responce_t process_record(void) { return HANDLER_PROCESSING; }
@@ -1236,7 +1274,7 @@ static void process_state_event(app_event_t event, source_t source, int button)
 static void process_state_logic(void)
 {
     if (mode_is_active(ALERT) && process_alert() == HANDLER_ERROR) end_alert();
-    if (mode_is_active(ACHTUNG)) process_achtung();
+    if (mode_is_active(ACHTUNG) && process_achtung() == HANDLER_ERROR) end_achtung();
     if (mode_is_active(RECEIVE))
     {
         if (app.modes[RECEIVE].source == OUTSOURCE)

@@ -24,6 +24,11 @@ static bool file_open;
 static uint32_t data_size;
 static FRESULT recording_error = FR_OK;
 
+bool wav_recording_is_open(void)
+{
+    return file_open;
+}
+
 static uint32_t write_buffer[
     WAV_RING_BLOCK_BYTES / sizeof(uint32_t)
 ];
@@ -431,6 +436,29 @@ FRESULT wav_recording_end(void)
     else
     {
         // При повторной попытке закрытия очередь не пишем заново.
+        recording_error = result;
+    }
+
+    return result;
+}
+
+FRESULT wav_recording_abort(void)
+{
+    if (!file_open)
+    {
+        return FR_NOT_READY;
+    }
+
+    i2s_stop();
+
+    FRESULT result = f_close(&wav_file);
+
+    if (result == FR_OK)
+    {
+        file_open = false;
+    }
+    else
+    {
         recording_error = result;
     }
 

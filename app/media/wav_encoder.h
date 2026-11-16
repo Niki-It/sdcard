@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "ff.h"
@@ -22,10 +23,13 @@
  * task: записывает не более одного блока из кольца.
  * end: останавливает RX, дописывает очередь,
  *      обновляет заголовок и закрывает файл.
+ * abort: останавливает RX и закрывает файл без дописывания очереди.
+ * is_open: сообщает, остался ли открытым файловый дескриптор.
  *
- * После ошибки task вызвать end для попытки
- * завершения записи и закрытия файла.
+ * После ошибки task вызвать abort для закрытия незавершённого файла.
  */
 FRESULT wav_recording_start(const TCHAR *filename);
 FRESULT wav_recording_task(void);
 FRESULT wav_recording_end(void);
+FRESULT wav_recording_abort(void);
+bool wav_recording_is_open(void);

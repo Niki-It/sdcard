@@ -89,6 +89,7 @@ typedef enum
     RECORD_UNLOCK,
     RECORD_UNLOCK_EXPIRED,
     RECORD_CHECK_COMBINATION,
+    RECORD_ERROR,
     VOLUME_UP,
     VOLUME_DOWN
 } app_event_t;

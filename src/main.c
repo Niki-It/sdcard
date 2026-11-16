@@ -15,6 +15,12 @@
 #define RECEIVE_TIMEOUT_MS          3000U
 #define PHRASE_DURATION_MS          3000U
 #define UNLOCK_RECORD_TIMEOUT_MS    5000U
+#define RECORD_1_FILENAME           "frase1.wav"
+#define RECORD_2_FILENAME           "frase2.wav"
+#define RECORD_1_TEMP_FILENAME      "FR1TMP.WAV"
+#define RECORD_2_TEMP_FILENAME      "FR2TMP.WAV"
+#define RECORD_1_BACKUP_FILENAME    "FR1BAK.WAV"
+#define RECORD_2_BACKUP_FILENAME    "FR2BAK.WAV"
 
 #define CHANNEL_1                   (1U << 0)
 #define CHANNEL_2                   (1U << 1)
@@ -149,6 +155,19 @@ typedef struct
 
 typedef struct
 {
+    const char *filename;
+    const char *temporary;
+    const char *backup;
+} record_file_paths_t;
+
+static const record_file_paths_t record_files[2] =
+{
+    {RECORD_1_FILENAME, RECORD_1_TEMP_FILENAME, RECORD_1_BACKUP_FILENAME},
+    {RECORD_2_FILENAME, RECORD_2_TEMP_FILENAME, RECORD_2_BACKUP_FILENAME}
+};
+
+typedef struct
+{
     // состояние машины
     uint32_t active_modes;
     mode_params_t modes[MODE_COUNT];
@@ -185,6 +204,7 @@ typedef struct
     uint32_t unlock_record_started_ms;
     int record_button;
     bool record_invalid;
+    bool record_storage_locked;
     // громкость
     uint8_t volume[VOLUME_COUNT];
 } app_runtime_t;
@@ -242,6 +262,7 @@ static void process_state_event(app_event_t event, source_t source, int button);
 static void process_state_logic(void);
 static void process_achtung_button(void);
 static void process_trk_button(void);
+static void record_recover_files(void);
 
 static void app_runtime_init(void)
 {
@@ -264,8 +285,14 @@ int main(void)
     app_runtime_init();
     button_combo_init(BUTTON_COMBO_TIMEOUT_MS);
     periph_init();
-    tusb_init();
     fs_unit(true);
+    record_recover_files();
+    tusb_init();
+
+    if (app.record_storage_locked)
+    {
+        tud_disconnect();
+    }
     aic3104_init();
     aic3104_init_clocking();
     printf("%d", aic3104_read_reg(101));
@@ -464,6 +491,12 @@ static void playback_start_mode(
     const char *filename
 )
 {
+    if (app.record_storage_locked)
+    {
+        printf("%s PLAYBACK BLOCKED: SD file is still open\r\n", mode_names[mode]);
+        return;
+    }
+
     tud_disconnect();
 
     for (unsigned i = 0U; i < TRANSMISSION_LINE_COUNT; ++i)
@@ -664,6 +697,8 @@ static FRESULT play_announce_file(const audio_file_t *file, uint8_t channels)
 
 static bool start_announce(uint8_t channels, source_t source, int button, const audio_file_t *file)
 {
+    if (app.record_storage_locked) return false;
+
     tud_disconnect();
 
     if (play_announce_file(file, channels) != FR_OK)
@@ -739,13 +774,256 @@ static void clear_record_unlock(void)
     app.unlock_record_started_ms = 0U;
     printf("UNLOCK_RECORD: expired\r\n");
 }
-static void start_record(source_t source, int button)
+
+static const record_file_paths_t *record_paths_for_button(int button)
 {
-    app.record_button = button;
-    app.record_invalid = false;
+    if (button == B_F1) return &record_files[0];
+    if (button == B_F2) return &record_files[1];
+    return NULL;
+}
+
+static FRESULT record_file_exists(const char *filename, bool *exists)
+{
+    FILINFO info;
+    FRESULT result = f_stat(filename, &info);
+
+    if (result == FR_NO_FILE)
+    {
+        *exists = false;
+        return FR_OK;
+    }
+
+    if (result != FR_OK) return result;
+    if ((info.fattrib & AM_DIR) != 0U) return FR_DENIED;
+
+    *exists = true;
+    return FR_OK;
+}
+
+static FRESULT record_discard_file(const record_file_paths_t *paths)
+{
+    bool exists = false;
+    FRESULT result = record_file_exists(paths->temporary, &exists);
+
+    if (result != FR_OK || !exists) return result;
+
+    return f_unlink(paths->temporary);
+}
+
+static FRESULT record_file_complete(const char *filename, bool *complete)
+{
+    *complete = false;
+
+    FILINFO info;
+    FRESULT result = f_stat(filename, &info);
+
+    if (result != FR_OK) return result;
+    if (info.fsize <= WAV_PCM_HEADER_BYTES) return FR_OK;
+
+    FIL file;
+    result = f_open(&file, filename, FA_READ);
+
+    if (result != FR_OK) return result;
+
+    uint8_t header[WAV_PCM_HEADER_BYTES];
+    UINT bytes_read = 0U;
+    result = f_read(&file, header, sizeof(header), &bytes_read);
+
+    FRESULT close_result = f_close(&file);
+
+    if (result == FR_OK) result = close_result;
+    if (result != FR_OK) return result;
+    if (bytes_read != sizeof(header)) return FR_OK;
+
+    if (memcmp(&header[0], "RIFF", 4U) != 0 ||
+        memcmp(&header[8], "WAVE", 4U) != 0 ||
+        memcmp(&header[12], "fmt ", 4U) != 0 ||
+        memcmp(&header[36], "data", 4U) != 0) return FR_OK;
+
+    uint32_t data_bytes = (uint32_t)header[40] |
+                          ((uint32_t)header[41] << 8U) |
+                          ((uint32_t)header[42] << 16U) |
+                          ((uint32_t)header[43] << 24U);
+
+    *complete = data_bytes > 0U && (FSIZE_t)data_bytes <= info.fsize - WAV_PCM_HEADER_BYTES;
+    return FR_OK;
+}
+
+static FRESULT record_recover_file(const record_file_paths_t *paths)
+{
+    bool backup_exists = false;
+    bool original_exists = false;
+    FRESULT result = record_file_exists(paths->backup, &backup_exists);
+
+    if (result != FR_OK) return result;
+
+    if (backup_exists)
+    {
+        result = record_file_exists(paths->filename, &original_exists);
+
+        if (result != FR_OK) return result;
+
+        if (!original_exists)
+        {
+            result = f_rename(paths->backup, paths->filename);
+        }
+        else
+        {
+            bool complete = false;
+            result = record_file_complete(paths->filename, &complete);
+
+            if (result != FR_OK) return result;
+
+            if (!complete)
+            {
+                result = f_unlink(paths->filename);
+
+                if (result == FR_OK)
+                {
+                    result = f_rename(paths->backup, paths->filename);
+                }
+            }
+            else
+            {
+                result = f_unlink(paths->backup);
+            }
+        }
+
+        if (result != FR_OK) return result;
+
+        printf("RECORD RECOVERY: %s\r\n", paths->filename);
+    }
+
+    return record_discard_file(paths);
+}
+
+static void record_recover_files(void)
+{
+    for (unsigned i = 0U; i < 2U; ++i)
+    {
+        FRESULT result = record_recover_file(&record_files[i]);
+
+        if (result != FR_OK)
+        {
+            app.record_storage_locked = true;
+            printf("RECORD RECOVERY ERROR: %s (%d)\r\n", record_files[i].filename, (int)result);
+        }
+    }
+}
+
+static FRESULT record_commit_file(const record_file_paths_t *paths)
+{
+    bool original_exists = false;
+    bool backup_exists = false;
+    bool complete = false;
+    FRESULT result = record_file_complete(paths->temporary, &complete);
+
+    if (result != FR_OK) return result;
+    if (!complete) return FR_DENIED;
+
+    result = record_file_exists(paths->filename, &original_exists);
+
+    if (result != FR_OK) return result;
+
+    result = record_file_exists(paths->backup, &backup_exists);
+
+    if (result != FR_OK) return result;
+    if (backup_exists) return FR_EXIST;
+
+    if (original_exists)
+    {
+        result = f_rename(paths->filename, paths->backup);
+
+        if (result != FR_OK) return result;
+    }
+
+    result = f_rename(paths->temporary, paths->filename);
+
+    if (result != FR_OK)
+    {
+        if (original_exists)
+        {
+            FRESULT rollback = f_rename(paths->backup, paths->filename);
+
+            if (rollback != FR_OK)
+            {
+                printf("RECORD ROLLBACK ERROR: %d\r\n", (int)rollback);
+            }
+        }
+
+        return result;
+    }
+
+    if (original_exists)
+    {
+        FRESULT cleanup = f_unlink(paths->backup);
+
+        if (cleanup != FR_OK)
+        {
+            printf("RECORD BACKUP CLEANUP ERROR: %d\r\n", (int)cleanup);
+        }
+    }
+
+    return FR_OK;
+}
+
+static bool start_record(source_t source, int button)
+{
+    const record_file_paths_t *paths = record_paths_for_button(button);
+
+    if (paths == NULL || app.record_storage_locked) return false;
+
+    tud_disconnect();
+
+    FRESULT result = record_recover_file(paths);
+    bool recovered = result == FR_OK;
+
+    if (result == FR_OK)
+    {
+        mux_channel_t input = source == REMOTE_1 ? MUX_CHANNEL_X0 : MUX_CHANNEL_X1;
+
+        playback_set_amplifiers(CHANNEL_1 | CHANNEL_2, false);
+        mux_select(2U, input);
+        aic3104_soft_reset();
+        aic3104_init_clocking();
+        aic3104_line1lp_i2s();
+
+        result = wav_recording_start(paths->temporary);
+    }
+
     app.unlock_record = false;
     app.unlock_record_started_ms = 0U;
+
+    if (result != FR_OK)
+    {
+        printf("RECORD START ERROR: %s (%d)\r\n", paths->temporary, (int)result);
+
+        if (!recovered || wav_recording_is_open())
+        {
+            app.record_storage_locked = true;
+            printf("RECORD: SD state unresolved, USB remains disconnected\r\n");
+        }
+        else
+        {
+            FRESULT cleanup = record_discard_file(paths);
+
+            if (cleanup != FR_OK)
+            {
+                app.record_storage_locked = true;
+                printf("RECORD TEMP CLEANUP ERROR: %d\r\n", (int)cleanup);
+            }
+
+            if (!app.record_storage_locked) tud_connect();
+        }
+
+        return false;
+    }
+
+    app.record_button = button;
+    app.record_invalid = false;
     activate_mode(RECORD, source, true);
+    printf("RECORD START: %s\r\n", paths->temporary);
+    return true;
 }
 static void invalidate_record(void)
 {
@@ -754,8 +1032,54 @@ static void invalidate_record(void)
 }
 static void end_record(bool invalid)
 {
-    /* TODO: завершить запись; сохранить только при !invalid. */
-    printf("RECORD: button=%d invalid=%u\r\n", app.record_button, (unsigned)invalid);
+    const record_file_paths_t *paths = record_paths_for_button(app.record_button);
+    FRESULT result = invalid ? wav_recording_abort() : wav_recording_end();
+
+    if (result != FR_OK)
+    {
+        invalid = true;
+        printf("RECORD END ERROR: %d\r\n", (int)result);
+    }
+
+    if (wav_recording_is_open())
+    {
+        app.record_storage_locked = true;
+        printf("RECORD: file still open, USB remains disconnected\r\n");
+    }
+    else if (paths != NULL)
+    {
+        if (invalid)
+        {
+            result = record_discard_file(paths);
+
+            if (result != FR_OK) app.record_storage_locked = true;
+        }
+        else
+        {
+            result = record_commit_file(paths);
+
+            if (result != FR_OK)
+            {
+                invalid = true;
+                FRESULT recovery = record_recover_file(paths);
+
+                if (recovery != FR_OK)
+                {
+                    app.record_storage_locked = true;
+                    printf("RECORD COMMIT RECOVERY ERROR: %d\r\n", (int)recovery);
+                }
+            }
+        }
+
+        if (result != FR_OK)
+        {
+            printf("RECORD FILE ERROR: %d\r\n", (int)result);
+        }
+    }
+
+    if (!app.record_storage_locked) tud_connect();
+
+    printf("RECORD END: button=%d invalid=%u\r\n", app.record_button, (unsigned)invalid);
     deactivate_mode(RECORD);
     app.record_button = NO_BUTTON;
     app.record_invalid = false;
@@ -808,7 +1132,18 @@ static handler_responce_t process_achtung(void)
 }
 
 static handler_responce_t process_receive(void) { return HANDLER_PROCESSING; }
-static handler_responce_t process_record(void) { return HANDLER_PROCESSING; }
+static handler_responce_t process_record(void)
+{
+    FRESULT result = wav_recording_task();
+
+    if (result != FR_OK)
+    {
+        printf("RECORD TASK ERROR: %d\r\n", (int)result);
+        return HANDLER_ERROR;
+    }
+
+    return HANDLER_PROCESSING;
+}
 static handler_responce_t process_auto_receive(void)
 {
     uint32_t now = uptime_ms;
@@ -888,6 +1223,8 @@ static handler_responce_t process_record_unlock(void)
 }
 static handler_responce_t process_auto_announce(void)
 {
+    if (app.record_storage_locked) return HANDLER_FINISHED;
+
     if (mode_is_active(ANNOUNCE) && app.modes[ANNOUNCE].source == OUTSOURCE)
     {
         return HANDLER_FINISHED;
@@ -1178,6 +1515,10 @@ static void process_state_event(app_event_t event, source_t source, int button)
 
         case RECORD_UNLOCK_EXPIRED:
             if (source == OUTSOURCE && app.unlock_record) clear_record_unlock();
+            break;
+
+        case RECORD_ERROR:
+            if (source == OUTSOURCE && mode_is_active(RECORD)) end_record(true);
             break;
 
         case ALERT_TOGGLE:
@@ -1537,7 +1878,8 @@ static void process_state_logic(void)
     }
     if (mode_is_active(PHRASE) && process_phrase() == HANDLER_FINISHED)
         process_state_event(PHRASE_FINISHED, OUTSOURCE, NO_BUTTON);
-    if (mode_is_active(RECORD)) process_record();
+    if (mode_is_active(RECORD) && process_record() == HANDLER_ERROR)
+        process_state_event(RECORD_ERROR, OUTSOURCE, NO_BUTTON);
     if (app.unlock_record && process_record_unlock() == HANDLER_FINISHED)
         process_state_event(RECORD_UNLOCK_EXPIRED, OUTSOURCE, NO_BUTTON);
 

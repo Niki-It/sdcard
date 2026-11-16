@@ -13,10 +13,6 @@
 
 /* Один условный цикл Python заменён одной секундой реального времени. */
 #define RECEIVE_TIMEOUT_MS          3000U
-#define AUTO_ANNOUNCE_1_PERIOD_MS    5000U
-#define AUTO_ANNOUNCE_2_PERIOD_MS    7000U
-#define AUTO_ANNOUNCE_3_PERIOD_MS    9000U
-#define ANNOUNCE_DURATION_MS        3000U
 #define PHRASE_DURATION_MS          3000U
 #define UNLOCK_RECORD_TIMEOUT_MS    5000U
 
@@ -37,8 +33,42 @@
 #error "ACHTUNG_CHANNELS: select CHANNEL_1, CHANNEL_2 or both"
 #endif
 
-#ifndef ANNOUNCE_REQUIRE_ALL_CHANNELS
-#define ANNOUNCE_REQUIRE_ALL_CHANNELS true
+/* При старте: отказ при занятом канале или воспроизведение на свободных. */
+#define ANNOUNCE_START_REJECT_ALL       0U
+#define ANNOUNCE_START_USE_FREE         1U
+#ifndef ANNOUNCE_START_POLICY
+#define ANNOUNCE_START_POLICY           ANNOUNCE_START_REJECT_ALL
+#endif
+
+/* При занятии канала ГГС/АПБ/фразой: остановить всё или освободить только канал. */
+#define ANNOUNCE_INTERRUPT_STOP_ALL     0U
+#define ANNOUNCE_INTERRUPT_DROP_CHANNEL 1U
+#ifndef ANNOUNCE_INTERRUPT_POLICY
+#define ANNOUNCE_INTERRUPT_POLICY       ANNOUNCE_INTERRUPT_DROP_CHANNEL
+#endif
+
+/* Порядок для ANNOUNCE3: чередовать папки или проигрывать их по очереди. */
+#ifndef ANNOUNCE3_ORDER
+#define ANNOUNCE3_ORDER                 ANNOUNCE_ORDER_ALTERNATE
+#endif
+
+/* Ручной ANNOUNCE: остановка после последнего файла или повтор до отпускания. */
+#define ANNOUNCE_MANUAL_STOP_AT_END      0U
+#define ANNOUNCE_MANUAL_LOOP             1U
+#ifndef ANNOUNCE_MANUAL_END_POLICY
+#define ANNOUNCE_MANUAL_END_POLICY       ANNOUNCE_MANUAL_LOOP
+#endif
+
+#if ANNOUNCE_MANUAL_END_POLICY != ANNOUNCE_MANUAL_STOP_AT_END && ANNOUNCE_MANUAL_END_POLICY != ANNOUNCE_MANUAL_LOOP
+#error "Invalid ANNOUNCE_MANUAL_END_POLICY"
+#endif
+
+#if ANNOUNCE_START_POLICY != ANNOUNCE_START_REJECT_ALL && ANNOUNCE_START_POLICY != ANNOUNCE_START_USE_FREE
+#error "Invalid ANNOUNCE_START_POLICY"
+#endif
+
+#if ANNOUNCE_INTERRUPT_POLICY != ANNOUNCE_INTERRUPT_STOP_ALL && ANNOUNCE_INTERRUPT_POLICY != ANNOUNCE_INTERRUPT_DROP_CHANNEL
+#error "Invalid ANNOUNCE_INTERRUPT_POLICY"
 #endif
 
 #define MODE_MASK(mode)             (UINT32_C(1) << (mode))
@@ -131,11 +161,19 @@ typedef struct
     // режим announce
     bool auto_announce_1;
     bool auto_announce_2;
-    uint32_t auto_announce_1_started_ms;
-    uint32_t auto_announce_2_started_ms;
-    uint32_t auto_announce_3_started_ms;
+    announce_sequence_t auto_announce_sequence;
+    announce_sequence_t manual_announce_sequence;
+    audio_file_t auto_announce_file;
+    audio_file_t manual_announce_file;
+    bool auto_announce_file_ready;
+    bool auto_announce_waiting;
+    uint32_t auto_announce_wait_started_ms;
+    uint32_t auto_announce_wait_ms;
+    bool manual_announce_waiting;
+    uint32_t manual_announce_wait_started_ms;
+    uint32_t manual_announce_wait_ms;
     uint8_t announce_channels;
-    uint32_t announce_started_ms;
+    bool announce_audio_running;
     int announce_button;
     // режим фразы
     uint8_t phrase_number;
@@ -542,30 +580,134 @@ static void set_auto_announce_2(bool enabled)
     app.auto_announce_2 = enabled;
     printf("AUTO_ANNOUNCE_2: %u\r\n", (unsigned)enabled);
 }
-static void reset_auto_announce_timers(void)
+static void reset_auto_announce_sequence(void)
 {
-    uint32_t now = uptime_ms;
-    app.auto_announce_1_started_ms = now;
-    app.auto_announce_2_started_ms = now;
-    app.auto_announce_3_started_ms = now;
+    announce_folder_t folder = ANNOUNCE_FOLDER_BOTH;
+
+    if (app.auto_announce_1 && !app.auto_announce_2) folder = ANNOUNCE_FOLDER_1;
+    if (!app.auto_announce_1 && app.auto_announce_2) folder = ANNOUNCE_FOLDER_2;
+
+    announce_sequence_reset(&app.auto_announce_sequence, folder, ANNOUNCE3_ORDER, true);
+    app.auto_announce_file_ready = false;
+    app.auto_announce_waiting = false;
+    app.auto_announce_wait_started_ms = 0U;
+    app.auto_announce_wait_ms = 0U;
 }
-static void start_announce(uint8_t channels, source_t source, int button)
+
+static void start_auto_announce_delay(void)
 {
+    app.auto_announce_file_ready = false;
+    app.auto_announce_waiting = true;
+    app.auto_announce_wait_started_ms = uptime_ms;
+    app.auto_announce_wait_ms = (uint32_t)app.auto_announce_file.delay * 1000U;
+}
+
+static void stop_announce_audio(void)
+{
+    playback_set_amplifiers(app.announce_channels, false);
+
+    if (audio_playback_is_active())
+    {
+        FRESULT result = audio_playback_stop();
+
+        if (result != FR_OK)
+        {
+            printf("ANNOUNCE STOP ERROR: %d\r\n", (int)result);
+        }
+    }
+
+    playback_set_i2s(app.announce_channels, false);
+    app.announce_audio_running = false;
+}
+
+static FRESULT play_announce_file(const audio_file_t *file, uint8_t channels)
+{
+    playback_set_amplifiers(channels, false);
+
+    for (unsigned i = 0U; i < TRANSMISSION_LINE_COUNT; ++i)
+    {
+        const transmission_line_config_t *line = &transmission_lines[i];
+
+        if (playback_line_enabled(line, channels))
+        {
+            swich_relay(line->relay_number, GGS);
+        }
+    }
+
+    /* Не сбрасываем кодек: соседний канал может передавать звук через bypass. */
+    playback_set_i2s(channels, true);
+
+    FRESULT result = audio_playback_start(file->pathfile);
+
+    if (result != FR_OK)
+    {
+        if (audio_playback_is_active())
+        {
+            FRESULT stop_result = audio_playback_stop();
+
+            if (stop_result != FR_OK)
+            {
+                printf("ANNOUNCE STOP ERROR: %d\r\n", (int)stop_result);
+            }
+        }
+
+        playback_set_i2s(channels, false);
+        printf("ANNOUNCE PLAYBACK ERROR: %s (%d)\r\n", file->pathfile, (int)result);
+        return result;
+    }
+
+    app.announce_audio_running = true;
+    playback_set_amplifiers(channels, true);
+    printf("ANNOUNCE PLAYBACK START: %s\r\n", file->pathfile);
+    return FR_OK;
+}
+
+static bool start_announce(uint8_t channels, source_t source, int button, const audio_file_t *file)
+{
+    tud_disconnect();
+
+    if (play_announce_file(file, channels) != FR_OK)
+    {
+        tud_connect();
+        return false;
+    }
+
     app.announce_button = button;
     app.announce_channels = channels;
-    app.announce_started_ms = uptime_ms;
+    app.manual_announce_waiting = false;
     activate_mode(ANNOUNCE, source, source != OUTSOURCE);
+    return true;
 }
+
 static void end_announce(void)
 {
+    bool automatic = app.modes[ANNOUNCE].source == OUTSOURCE;
+
+    stop_announce_audio();
     deactivate_mode(ANNOUNCE);
     app.announce_channels = 0U;
-    app.announce_started_ms = 0U;
     app.announce_button = NO_BUTTON;
+    app.manual_announce_waiting = false;
+    tud_connect();
+
+    if (automatic && (app.auto_announce_1 || app.auto_announce_2))
+    {
+        start_auto_announce_delay();
+    }
 }
+
 static void set_announce_channels(uint8_t channels)
 {
-    /* Оставшиеся каналы продолжают воспроизведение без перезапуска. */
+    uint8_t removed = (uint8_t)(app.announce_channels & (uint8_t)~channels);
+
+    playback_set_amplifiers(removed, false);
+
+    if (app.announce_audio_running)
+    {
+        playback_set_i2s(removed, false);
+    }
+
+    /* Декодирование и воспроизведение на оставшихся каналах не прерываются. */
     app.announce_channels = channels;
     printf("ANNOUNCE: channels=%u\r\n", (unsigned)channels);
 }
@@ -666,7 +808,6 @@ static handler_responce_t process_achtung(void)
 }
 
 static handler_responce_t process_receive(void) { return HANDLER_PROCESSING; }
-static handler_responce_t process_manual_announce(void) { return HANDLER_PROCESSING; }
 static handler_responce_t process_record(void) { return HANDLER_PROCESSING; }
 static handler_responce_t process_auto_receive(void)
 {
@@ -681,8 +822,59 @@ static handler_responce_t process_auto_receive(void)
 }
 static handler_responce_t process_announce(void)
 {
-    return interval_expired(uptime_ms, app.announce_started_ms, ANNOUNCE_DURATION_MS)
-           ? HANDLER_FINISHED : HANDLER_PROCESSING;
+    FRESULT result = audio_playback_task();
+
+    if (result != FR_OK)
+    {
+        printf("ANNOUNCE PLAYBACK ERROR: %d\r\n", (int)result);
+        return HANDLER_ERROR;
+    }
+
+    return audio_playback_is_active() ? HANDLER_PROCESSING : HANDLER_FINISHED;
+}
+
+static handler_responce_t process_manual_announce(void)
+{
+    if (app.manual_announce_waiting)
+    {
+        if (!interval_expired(uptime_ms, app.manual_announce_wait_started_ms, app.manual_announce_wait_ms))
+        {
+            return HANDLER_PROCESSING;
+        }
+
+        app.manual_announce_waiting = false;
+
+        if (!announce_sequence_next(&app.manual_announce_sequence, &app.manual_announce_file))
+        {
+            return HANDLER_FINISHED;
+        }
+
+        if (play_announce_file(&app.manual_announce_file, app.announce_channels) != FR_OK)
+        {
+            app.manual_announce_wait_started_ms = uptime_ms;
+            app.manual_announce_wait_ms = (uint32_t)app.manual_announce_file.delay * 1000U;
+            app.manual_announce_waiting = true;
+        }
+
+        return HANDLER_PROCESSING;
+    }
+
+    handler_responce_t result = process_announce();
+
+    if (result != HANDLER_PROCESSING)
+    {
+        if (result == HANDLER_FINISHED)
+        {
+            printf("ANNOUNCE FILE FINISHED: %s\r\n", app.manual_announce_file.pathfile);
+        }
+
+        stop_announce_audio();
+        app.manual_announce_wait_started_ms = uptime_ms;
+        app.manual_announce_wait_ms = (uint32_t)app.manual_announce_file.delay * 1000U;
+        app.manual_announce_waiting = true;
+    }
+
+    return HANDLER_PROCESSING;
 }
 static handler_responce_t process_phrase(void)
 {
@@ -694,28 +886,34 @@ static handler_responce_t process_record_unlock(void)
     return interval_expired(uptime_ms, app.unlock_record_started_ms, UNLOCK_RECORD_TIMEOUT_MS)
            ? HANDLER_FINISHED : HANDLER_PROCESSING;
 }
-static handler_responce_t process_auto_announce_timer(uint32_t *started_ms, uint32_t period_ms)
+static handler_responce_t process_auto_announce(void)
 {
-    uint32_t now = uptime_ms;
-    if (interval_expired(now, *started_ms, period_ms))
+    if (mode_is_active(ANNOUNCE) && app.modes[ANNOUNCE].source == OUTSOURCE)
     {
-        /* Один запрос за обслуживание, без серии запусков после задержки цикла. */
-        *started_ms = now;
-        return HANDLER_PROCESSING;
+        return HANDLER_FINISHED;
     }
-    return HANDLER_FINISHED;
-}
-static handler_responce_t process_auto_announce_1(void)
-{
-    return process_auto_announce_timer(&app.auto_announce_1_started_ms, AUTO_ANNOUNCE_1_PERIOD_MS);
-}
-static handler_responce_t process_auto_announce_2(void)
-{
-    return process_auto_announce_timer(&app.auto_announce_2_started_ms, AUTO_ANNOUNCE_2_PERIOD_MS);
-}
-static handler_responce_t process_auto_announce_3(void)
-{
-    return process_auto_announce_timer(&app.auto_announce_3_started_ms, AUTO_ANNOUNCE_3_PERIOD_MS);
+
+    if (app.auto_announce_waiting)
+    {
+        if (!interval_expired(uptime_ms, app.auto_announce_wait_started_ms, app.auto_announce_wait_ms))
+        {
+            return HANDLER_FINISHED;
+        }
+
+        app.auto_announce_waiting = false;
+    }
+
+    if (!app.auto_announce_file_ready)
+    {
+        if (!announce_sequence_next(&app.auto_announce_sequence, &app.auto_announce_file))
+        {
+            return HANDLER_ERROR;
+        }
+
+        app.auto_announce_file_ready = true;
+    }
+
+    return HANDLER_PROCESSING;
 }
 
 /* Преобразование комбинаций не проверяет состояние машины.
@@ -1090,7 +1288,8 @@ static void process_state_event(app_event_t event, source_t source, int button)
             if (mode_is_active(ANNOUNCE) && (app.announce_channels & channel) != 0U)
             {
                 uint8_t remaining = (uint8_t)(app.announce_channels & (uint8_t)~channel);
-                if (ANNOUNCE_REQUIRE_ALL_CHANNELS || remaining == 0U) end_announce();
+                if (ANNOUNCE_INTERRUPT_POLICY == ANNOUNCE_INTERRUPT_STOP_ALL || remaining == 0U)
+                    end_announce();
                 else set_announce_channels(remaining);
             }
             if (mode_is_active(PHRASE) && app.phrase_channel == channel) end_phrase();
@@ -1118,7 +1317,16 @@ static void process_state_event(app_event_t event, source_t source, int button)
             if (mode_is_active(ANNOUNCE) && app.modes[ANNOUNCE].source == OUTSOURCE) end_announce();
             if (event == AUTO_ANNOUNCE_1_TOGGLE) set_auto_announce_1(!app.auto_announce_1);
             else set_auto_announce_2(!app.auto_announce_2);
-            reset_auto_announce_timers();
+            reset_auto_announce_sequence();
+            break;
+
+        case AUTO_ANNOUNCE_FINISHED:
+            if (source != OUTSOURCE) return;
+            if (mode_is_active(ANNOUNCE) && app.modes[ANNOUNCE].source == OUTSOURCE) end_announce();
+            if (app.auto_announce_1) set_auto_announce_1(false);
+            if (app.auto_announce_2) set_auto_announce_2(false);
+            reset_auto_announce_sequence();
+            printf("AUTO_ANNOUNCE: no files, disabled\r\n");
             break;
 
         case ANNOUNCE_START:
@@ -1148,13 +1356,34 @@ static void process_state_event(app_event_t event, source_t source, int button)
             }
             if (mode_is_active(RECORD) || mode_is_active(ANNOUNCE) ||
                 mode_is_active(ALERT) || mode_is_active(ACHTUNG)) return;
+            if (mode_is_active(PHRASE) && app.phrase_channel == CHANNEL_PRM) return;
             uint8_t requested = ANNOUNCE_CHANNELS & (CHANNEL_1 | CHANNEL_2);
             uint8_t channels = requested;
             if (mode_is_active(GGS1) || mode_is_active(APB1)) channels &= (uint8_t)~CHANNEL_1;
             if (mode_is_active(GGS2) || mode_is_active(APB2)) channels &= (uint8_t)~CHANNEL_2;
             if (mode_is_active(PHRASE)) channels &= (uint8_t)~app.phrase_channel;
-            if (channels == 0U || (ANNOUNCE_REQUIRE_ALL_CHANNELS && channels != requested)) return;
-            start_announce(channels, source, button);
+            if (channels == 0U || (ANNOUNCE_START_POLICY == ANNOUNCE_START_REJECT_ALL &&
+                                   channels != requested)) return;
+
+            if (event == ANNOUNCE_START)
+            {
+                start_announce(channels, source, button, &app.auto_announce_file);
+            }
+            else
+            {
+                announce_sequence_reset(&app.manual_announce_sequence,
+                                        button == B_F1 ? ANNOUNCE_FOLDER_1 : ANNOUNCE_FOLDER_2,
+                                        ANNOUNCE_ORDER_SEQUENTIAL,
+                                        ANNOUNCE_MANUAL_END_POLICY == ANNOUNCE_MANUAL_LOOP);
+
+                if (!announce_sequence_next(&app.manual_announce_sequence, &app.manual_announce_file))
+                {
+                    printf("ANNOUNCE: no files for F%d\r\n", button == B_F1 ? 1 : 2);
+                    return;
+                }
+
+                start_announce(channels, source, button, &app.manual_announce_file);
+            }
             break;
         }
 
@@ -1169,9 +1398,8 @@ static void process_state_event(app_event_t event, source_t source, int button)
                 return;
             }
             if (!mode_is_active(ANNOUNCE)) return;
-            if (app.modes[ANNOUNCE].source == OUTSOURCE ||
-                (app.modes[ANNOUNCE].source == source && app.modes[ANNOUNCE].is_holding &&
-                 app.announce_button == button)) end_announce();
+            if (app.modes[ANNOUNCE].source == source && app.modes[ANNOUNCE].is_holding &&
+                app.announce_button == button) end_announce();
             break;
 
         case ANNOUNCE_FINISHED:
@@ -1212,10 +1440,12 @@ static void process_state_event(app_event_t event, source_t source, int button)
             if ((channel == CHANNEL_PRM && mode_is_active(RECEIVE)) ||
                 (channel == CHANNEL_1 && (mode_is_active(GGS1) || mode_is_active(APB1))) ||
                 (channel == CHANNEL_2 && (mode_is_active(GGS2) || mode_is_active(APB2)))) return;
+            if (channel == CHANNEL_PRM && mode_is_active(ANNOUNCE)) end_announce();
             if (mode_is_active(ANNOUNCE) && (app.announce_channels & channel) != 0U)
             {
                 uint8_t remaining = (uint8_t)(app.announce_channels & (uint8_t)~channel);
-                if (ANNOUNCE_REQUIRE_ALL_CHANNELS || remaining == 0U) end_announce();
+                if (ANNOUNCE_INTERRUPT_POLICY == ANNOUNCE_INTERRUPT_STOP_ALL || remaining == 0U)
+                    end_announce();
                 else set_announce_channels(remaining);
             }
             start_phrase(source, number, output, channel);
@@ -1288,10 +1518,22 @@ static void process_state_logic(void)
     {
         if (app.modes[ANNOUNCE].source == OUTSOURCE)
         {
-            if (process_announce() == HANDLER_FINISHED)
+            handler_responce_t result = process_announce();
+
+            if (result != HANDLER_PROCESSING)
+            {
+                if (result == HANDLER_FINISHED)
+                {
+                    printf("ANNOUNCE FILE FINISHED: %s\r\n", app.auto_announce_file.pathfile);
+                }
+
                 process_state_event(ANNOUNCE_FINISHED, OUTSOURCE, NO_BUTTON);
+            }
         }
-        else process_manual_announce();
+        else if (process_manual_announce() != HANDLER_PROCESSING)
+        {
+            end_announce();
+        }
     }
     if (mode_is_active(PHRASE) && process_phrase() == HANDLER_FINISHED)
         process_state_event(PHRASE_FINISHED, OUTSOURCE, NO_BUTTON);
@@ -1299,14 +1541,26 @@ static void process_state_logic(void)
     if (app.unlock_record && process_record_unlock() == HANDLER_FINISHED)
         process_state_event(RECORD_UNLOCK_EXPIRED, OUTSOURCE, NO_BUTTON);
 
-    /* Автоматика продолжает отсчёт даже при занятых каналах / ALERT / RECORD.
-     * Неудачный запрос теряется. Активен только один из трёх таймеров. */
-    handler_responce_t result = HANDLER_FINISHED;
-    if (app.auto_announce_1 && app.auto_announce_2) result = process_auto_announce_3();
-    else if (app.auto_announce_1) result = process_auto_announce_1();
-    else if (app.auto_announce_2) result = process_auto_announce_2();
-    if (result == HANDLER_PROCESSING)
-        process_state_event(ANNOUNCE_START, OUTSOURCE, NO_BUTTON);
+    if (app.auto_announce_1 || app.auto_announce_2)
+    {
+        handler_responce_t result = process_auto_announce();
+
+        if (result == HANDLER_ERROR)
+        {
+            process_state_event(AUTO_ANNOUNCE_FINISHED, OUTSOURCE, NO_BUTTON);
+        }
+        else if (result == HANDLER_PROCESSING)
+        {
+            process_state_event(ANNOUNCE_START, OUTSOURCE, NO_BUTTON);
+            app.auto_announce_file_ready = false;
+
+            /* Не удалось занять каналы или открыть файл: отсчитываем его задержку. */
+            if (!mode_is_active(ANNOUNCE) || app.modes[ANNOUNCE].source != OUTSOURCE)
+            {
+                start_auto_announce_delay();
+            }
+        }
+    }
 }
 
 // Сухой контакт ППК

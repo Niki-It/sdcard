@@ -209,3 +209,78 @@ static audio_file_t find_audio_file(const char *folder, uint8_t number)
 
     return result;
 }
+
+void announce_sequence_reset(announce_sequence_t *sequence, announce_folder_t folder, announce_order_t order, bool repeat)
+{
+    if (sequence == NULL)
+    {
+        return;
+    }
+
+    memset(sequence, 0, sizeof(*sequence));
+    sequence->folder = folder;
+    sequence->order = order;
+    sequence->repeat = repeat;
+    sequence->next_number[0] = 1U;
+    sequence->next_number[1] = 1U;
+    sequence->current_folder = folder == ANNOUNCE_FOLDER_2 ? 1U : 0U;
+}
+
+bool announce_sequence_next(announce_sequence_t *sequence, audio_file_t *file)
+{
+    if (sequence == NULL || file == NULL)
+    {
+        return false;
+    }
+
+    memset(file, 0, sizeof(*file));
+
+    if (sequence->folder > ANNOUNCE_FOLDER_BOTH)
+    {
+        return false;
+    }
+
+    uint8_t attempts = sequence->folder == ANNOUNCE_FOLDER_BOTH ? 5U : 2U;
+
+    for (uint8_t attempt = 0U; attempt < attempts; ++attempt)
+    {
+        uint8_t index = sequence->current_folder;
+        uint8_t number = sequence->next_number[index];
+
+        if (number == 0U || number > 99U)
+        {
+            number = 1U;
+        }
+
+        *file = find_audio_file(index == 0U ? "announce1" : "announce2", number);
+
+        if (file->result)
+        {
+            sequence->next_number[index] = number == 99U ? 1U : number + 1U;
+
+            if (sequence->folder == ANNOUNCE_FOLDER_BOTH && sequence->order == ANNOUNCE_ORDER_ALTERNATE)
+            {
+                sequence->current_folder ^= 1U;
+            }
+
+            return true;
+        }
+
+        sequence->next_number[index] = 1U;
+
+        if (sequence->folder != ANNOUNCE_FOLDER_BOTH)
+        {
+            if (!sequence->repeat || number == 1U)
+            {
+                return false;
+            }
+        }
+        else if (sequence->order == ANNOUNCE_ORDER_SEQUENTIAL || number == 1U)
+        {
+            sequence->current_folder ^= 1U;
+        }
+    }
+
+    memset(file, 0, sizeof(*file));
+    return false;
+}

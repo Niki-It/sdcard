@@ -40,6 +40,7 @@ FRESULT audio_playback_task(void);
 FRESULT audio_playback_stop(void);
 
 bool audio_playback_is_active(void);
+bool audio_playback_is_file_open(void);
 
 audio_playback_state_t audio_playback_get_state(void);
 

@@ -620,6 +620,11 @@ bool audio_playback_is_active(void)
            playback.state == AUDIO_PLAYBACK_DRAINING;
 }
 
+bool audio_playback_is_file_open(void)
+{
+    return playback.file_open;
+}
+
 
 audio_playback_state_t audio_playback_get_state(void)
 {

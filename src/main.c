@@ -13,10 +13,11 @@
 
 /* Один условный цикл Python заменён одной секундой реального времени. */
 #define RECEIVE_TIMEOUT_MS          3000U
-#define PHRASE_DURATION_MS          3000U
 #define UNLOCK_RECORD_TIMEOUT_MS    5000U
 #define RECORD_1_FILENAME           "frase1.wav"
 #define RECORD_2_FILENAME           "frase2.wav"
+#define PHRASE_1_FILENAME           RECORD_1_FILENAME
+#define PHRASE_2_FILENAME           RECORD_2_FILENAME
 #define RECORD_1_TEMP_FILENAME      "FR1TMP.WAV"
 #define RECORD_2_TEMP_FILENAME      "FR2TMP.WAV"
 #define RECORD_1_BACKUP_FILENAME    "FR1BAK.WAV"
@@ -198,7 +199,6 @@ typedef struct
     uint8_t phrase_number;
     int phrase_output;
     uint8_t phrase_channel;
-    uint32_t phrase_started_ms;
     // режим записи
     bool unlock_record;
     uint32_t unlock_record_started_ms;
@@ -222,9 +222,9 @@ static const uint32_t mode_compatibility[MODE_COUNT] = {
     [APB1] = MODE_MASK(GGS2) | MODE_MASK(APB2) | MODE_MASK(ANNOUNCE) | MODE_MASK(PHRASE),
     [APB2] = MODE_MASK(GGS1) | MODE_MASK(APB1) | MODE_MASK(ANNOUNCE) | MODE_MASK(PHRASE),
     [ANNOUNCE] = MODE_MASK(RECEIVE) | MODE_MASK(GGS1) | MODE_MASK(GGS2) |
-                 MODE_MASK(APB1) | MODE_MASK(APB2) | MODE_MASK(PHRASE),
+                 MODE_MASK(APB1) | MODE_MASK(APB2),
     [PHRASE] = MODE_MASK(RECEIVE) | MODE_MASK(GGS1) | MODE_MASK(GGS2) |
-               MODE_MASK(APB1) | MODE_MASK(APB2) | MODE_MASK(ANNOUNCE),
+               MODE_MASK(APB1) | MODE_MASK(APB2),
     [RECORD] = 0U
 };
 
@@ -484,6 +484,18 @@ static FRESULT playback_start_file(const char *filename, uint8_t channels)
     return FR_OK;
 }
 
+static void playback_restore_usb(void)
+{
+    if (audio_playback_is_file_open())
+    {
+        app.record_storage_locked = true;
+        printf("PLAYBACK: file still open, USB remains disconnected\r\n");
+        return;
+    }
+
+    if (!app.record_storage_locked) tud_connect();
+}
+
 static void playback_start_mode(
     app_mode_t mode,
     source_t source,
@@ -514,7 +526,8 @@ static void playback_start_mode(
     if (result != FR_OK)
     {
         printf("%s PLAYBACK ERROR: %d\r\n", mode_names[mode], (int)result);
-        tud_connect();
+        if (audio_playback_is_file_open()) audio_playback_stop();
+        playback_restore_usb();
         return;
     }
 
@@ -525,7 +538,7 @@ static void playback_end_mode(app_mode_t mode, uint8_t channels)
 {
     playback_set_amplifiers(channels, false);
 
-    if (audio_playback_is_active())
+    if (audio_playback_is_active() || audio_playback_is_file_open())
     {
         FRESULT result = audio_playback_stop();
 
@@ -537,7 +550,7 @@ static void playback_end_mode(app_mode_t mode, uint8_t channels)
 
     playback_set_i2s(channels, false);
     deactivate_mode(mode);
-    tud_connect();
+    playback_restore_usb();
 }
 
 static void start_alert(source_t source)
@@ -639,7 +652,7 @@ static void stop_announce_audio(void)
 {
     playback_set_amplifiers(app.announce_channels, false);
 
-    if (audio_playback_is_active())
+    if (audio_playback_is_active() || audio_playback_is_file_open())
     {
         FRESULT result = audio_playback_stop();
 
@@ -674,7 +687,7 @@ static FRESULT play_announce_file(const audio_file_t *file, uint8_t channels)
 
     if (result != FR_OK)
     {
-        if (audio_playback_is_active())
+        if (audio_playback_is_active() || audio_playback_is_file_open())
         {
             FRESULT stop_result = audio_playback_stop();
 
@@ -703,7 +716,7 @@ static bool start_announce(uint8_t channels, source_t source, int button, const 
 
     if (play_announce_file(file, channels) != FR_OK)
     {
-        tud_connect();
+        playback_restore_usb();
         return false;
     }
 
@@ -723,7 +736,7 @@ static void end_announce(void)
     app.announce_channels = 0U;
     app.announce_button = NO_BUTTON;
     app.manual_announce_waiting = false;
-    tud_connect();
+    playback_restore_usb();
 
     if (automatic && (app.auto_announce_1 || app.auto_announce_2))
     {
@@ -746,21 +759,66 @@ static void set_announce_channels(uint8_t channels)
     app.announce_channels = channels;
     printf("ANNOUNCE: channels=%u\r\n", (unsigned)channels);
 }
-static void start_phrase(source_t source, uint8_t number, app_mode_t output, uint8_t channel)
+static bool start_phrase(source_t source, uint8_t number, app_mode_t output, uint8_t channel)
 {
+    if (app.record_storage_locked) return false;
+
+    const transmission_line_config_t *line = transmission_line_for_mode(output);
+
+    if (line == NULL || line->channel_mask != channel) return false;
+
+    const char *filename = number == 1U ? PHRASE_1_FILENAME : PHRASE_2_FILENAME;
+
+    tud_disconnect();
+    mute_amplifier(line->amplifier_channel);
+    swich_relay(line->relay_number, transmission_relay_for_mode(output));
+    line->start_i2s();
+
+    FRESULT result = audio_playback_start(filename);
+
+    if (result != FR_OK)
+    {
+        printf("PHRASE START ERROR: %s (%d)\r\n", filename, (int)result);
+        if (audio_playback_is_file_open()) audio_playback_stop();
+        line->stop_i2s();
+        playback_restore_usb();
+        return false;
+    }
+
+    unmute_amplifiers(line->amplifier_channel);
     app.phrase_number = number;
     app.phrase_output = (int)output;
     app.phrase_channel = channel;
-    app.phrase_started_ms = uptime_ms;
     activate_mode(PHRASE, source, false);
+    printf("PHRASE START: %s, output=%s\r\n", filename, mode_names[output]);
+    return true;
 }
 static void end_phrase(void)
 {
+    if (app.phrase_output != NO_OUTPUT)
+    {
+        const transmission_line_config_t *line = transmission_line_for_mode((app_mode_t)app.phrase_output);
+
+        if (line != NULL)
+        {
+            mute_amplifier(line->amplifier_channel);
+
+            FRESULT result = audio_playback_stop();
+
+            if (result != FR_OK)
+            {
+                printf("PHRASE STOP ERROR: %d\r\n", (int)result);
+            }
+
+            line->stop_i2s();
+            playback_restore_usb();
+        }
+    }
+
     deactivate_mode(PHRASE);
     app.phrase_number = 0U;
     app.phrase_output = NO_OUTPUT;
     app.phrase_channel = 0U;
-    app.phrase_started_ms = 0U;
 }
 static void enable_record_unlock(void)
 {
@@ -1213,8 +1271,15 @@ static handler_responce_t process_manual_announce(void)
 }
 static handler_responce_t process_phrase(void)
 {
-    return interval_expired(uptime_ms, app.phrase_started_ms, PHRASE_DURATION_MS)
-           ? HANDLER_FINISHED : HANDLER_PROCESSING;
+    FRESULT result = audio_playback_task();
+
+    if (result != FR_OK)
+    {
+        printf("PHRASE PLAYBACK ERROR: %d\r\n", (int)result);
+        return HANDLER_ERROR;
+    }
+
+    return audio_playback_is_active() ? HANDLER_PROCESSING : HANDLER_FINISHED;
 }
 static handler_responce_t process_record_unlock(void)
 {
@@ -1695,14 +1760,12 @@ static void process_state_event(app_event_t event, source_t source, int button)
                 start_record(source, button);
                 return;
             }
-            if (mode_is_active(RECORD) || mode_is_active(ANNOUNCE) ||
+            if (mode_is_active(RECORD) || mode_is_active(ANNOUNCE) || mode_is_active(PHRASE) ||
                 mode_is_active(ALERT) || mode_is_active(ACHTUNG)) return;
-            if (mode_is_active(PHRASE) && app.phrase_channel == CHANNEL_PRM) return;
             uint8_t requested = ANNOUNCE_CHANNELS & (CHANNEL_1 | CHANNEL_2);
             uint8_t channels = requested;
             if (mode_is_active(GGS1) || mode_is_active(APB1)) channels &= (uint8_t)~CHANNEL_1;
             if (mode_is_active(GGS2) || mode_is_active(APB2)) channels &= (uint8_t)~CHANNEL_2;
-            if (mode_is_active(PHRASE)) channels &= (uint8_t)~app.phrase_channel;
             if (channels == 0U || (ANNOUNCE_START_POLICY == ANNOUNCE_START_REJECT_ALL &&
                                    channels != requested)) return;
 
@@ -1781,19 +1844,40 @@ static void process_state_event(app_event_t event, source_t source, int button)
             if ((channel == CHANNEL_PRM && mode_is_active(RECEIVE)) ||
                 (channel == CHANNEL_1 && (mode_is_active(GGS1) || mode_is_active(APB1))) ||
                 (channel == CHANNEL_2 && (mode_is_active(GGS2) || mode_is_active(APB2)))) return;
-            if (channel == CHANNEL_PRM && mode_is_active(ANNOUNCE)) end_announce();
-            if (mode_is_active(ANNOUNCE) && (app.announce_channels & channel) != 0U)
+
+            if (channel == CHANNEL_PRM)
             {
-                uint8_t remaining = (uint8_t)(app.announce_channels & (uint8_t)~channel);
-                if (ANNOUNCE_INTERRUPT_POLICY == ANNOUNCE_INTERRUPT_STOP_ALL || remaining == 0U)
-                    end_announce();
-                else set_announce_channels(remaining);
+                printf("PHRASE %u: OPER playback not implemented\r\n", (unsigned)number);
+                return;
             }
+
+            if (app.record_storage_locked) return;
+
+            if (mode_is_active(ANNOUNCE))
+            {
+                const char *filename = number == 1U ? PHRASE_1_FILENAME : PHRASE_2_FILENAME;
+                FILINFO info;
+                FRESULT result = f_stat(filename, &info);
+
+                if (result != FR_OK || (info.fattrib & AM_DIR) != 0U ||
+                    info.fsize <= WAV_PCM_HEADER_BYTES)
+                {
+                    printf("PHRASE UNAVAILABLE: %s (%d)\r\n", filename, (int)result);
+                    return;
+                }
+
+                end_announce();
+            }
+
             start_phrase(source, number, output, channel);
             break;
         }
 
         case PHRASE_FINISHED:
+            if (source == OUTSOURCE && mode_is_active(PHRASE)) end_phrase();
+            break;
+
+        case PHRASE_ERROR:
             if (source == OUTSOURCE && mode_is_active(PHRASE)) end_phrase();
             break;
 
@@ -1876,8 +1960,15 @@ static void process_state_logic(void)
             end_announce();
         }
     }
-    if (mode_is_active(PHRASE) && process_phrase() == HANDLER_FINISHED)
-        process_state_event(PHRASE_FINISHED, OUTSOURCE, NO_BUTTON);
+    if (mode_is_active(PHRASE))
+    {
+        handler_responce_t result = process_phrase();
+
+        if (result == HANDLER_FINISHED)
+            process_state_event(PHRASE_FINISHED, OUTSOURCE, NO_BUTTON);
+        else if (result == HANDLER_ERROR)
+            process_state_event(PHRASE_ERROR, OUTSOURCE, NO_BUTTON);
+    }
     if (mode_is_active(RECORD) && process_record() == HANDLER_ERROR)
         process_state_event(RECORD_ERROR, OUTSOURCE, NO_BUTTON);
     if (app.unlock_record && process_record_unlock() == HANDLER_FINISHED)

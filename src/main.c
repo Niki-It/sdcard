@@ -13,7 +13,7 @@
 
 /* Один условный цикл Python заменён одной секундой реального времени. */
 #define RECEIVE_TIMEOUT_MS          3000U
-#define UNLOCK_RECORD_TIMEOUT_MS    5000U
+#define UNLOCK_RECORD_TIMEOUT_MS    15000U
 #define RECORD_1_FILENAME           "frase1.wav"
 #define RECORD_2_FILENAME           "frase2.wav"
 #define PHRASE_1_FILENAME           RECORD_1_FILENAME
@@ -81,9 +81,6 @@
 #define MODE_MASK(mode)             (UINT32_C(1) << (mode))
 #define NO_BUTTON                   (-1)
 #define NO_OUTPUT                   (-1)
-#define VOLUME_INITIAL              50U
-#define VOLUME_MIN                  0
-#define VOLUME_MAX                  100
 #define VOLUME_STEP                 5
 
 /* В C кнопка B_GGS из Python называется B_GGS1.
@@ -102,6 +99,12 @@ typedef enum
     VOLUME_COUNT
 } volume_target_t;
 
+typedef struct
+{
+    uint8_t hardware;   /* Код ослабления AIC3104, не проценты. */
+    uint16_t software;  /* Счётчик допустимых шагов, шаг 5. */
+} volume_state_t;
+
 /* Логические линии не зависят от нумерации отдельных микросхем. */
 typedef enum
 {
@@ -116,9 +119,9 @@ typedef struct
     uint8_t relay_number;
     uint8_t amplifier_channel;
     uint8_t channel_mask;
-    void (*start_bypass)(void);
+    void (*start_bypass)(uint8_t hardware);
     void (*stop_bypass)(void);
-    void (*start_i2s)(void);
+    void (*start_i2s)(uint8_t hardware);
     void (*stop_i2s)(void);
 } transmission_line_config_t;
 
@@ -206,7 +209,7 @@ typedef struct
     bool record_invalid;
     bool record_storage_locked;
     // громкость
-    uint8_t volume[VOLUME_COUNT];
+    volume_state_t volume[VOLUME_COUNT];
 } app_runtime_t;
 
 static const char *const mode_names[MODE_COUNT] = {
@@ -275,8 +278,7 @@ static void app_runtime_init(void)
     app.phrase_output = NO_OUTPUT;
     for (unsigned i = 0; i < MODE_COUNT; ++i)
         app.modes[i].source = OUTSOURCE;
-    for (unsigned i = 0; i < VOLUME_COUNT; ++i)
-        app.volume[i] = VOLUME_INITIAL;
+
 }
 
 int main(void)
@@ -295,6 +297,11 @@ int main(void)
     }
     aic3104_init();
     aic3104_init_clocking();
+    for (unsigned i = 0; i < VOLUME_COUNT; ++i)
+    {
+        app.volume[i].hardware = aic3104_get_min_volume();
+        app.volume[i].software = 0U;
+    }
     printf("%d", aic3104_read_reg(101));
     i2s_dma_init();
     debounce_init(debounced_pins, DEBOUNCE_INPUT_COUNT, DEBOUNCE_PERIOD_MS);
@@ -442,7 +449,7 @@ static void playback_set_amplifiers(uint8_t channels, bool enabled)
     }
 }
 
-static void playback_set_i2s(uint8_t channels, bool enabled)
+static void playback_set_i2s(uint8_t channels, bool enabled, uint8_t hardware)
 {
     for (unsigned i = 0U; i < TRANSMISSION_LINE_COUNT; ++i)
     {
@@ -452,7 +459,7 @@ static void playback_set_i2s(uint8_t channels, bool enabled)
         {
             if (enabled)
             {
-                line->start_i2s();
+                line->start_i2s(hardware);
             }
             else
             {
@@ -468,13 +475,13 @@ static FRESULT playback_start_file(const char *filename, uint8_t channels)
 
     aic3104_soft_reset();
     aic3104_init_clocking();
-    playback_set_i2s(channels, true);
+    playback_set_i2s(channels, true, aic3104_get_min_volume());
 
     FRESULT result = audio_playback_start(filename);
 
     if (result != FR_OK)
     {
-        playback_set_i2s(channels, false);
+        playback_set_i2s(channels, false, aic3104_get_min_volume());
         return result;
     }
 
@@ -548,7 +555,7 @@ static void playback_end_mode(app_mode_t mode, uint8_t channels)
         }
     }
 
-    playback_set_i2s(channels, false);
+    playback_set_i2s(channels, false, aic3104_get_min_volume());
     deactivate_mode(mode);
     playback_restore_usb();
 }
@@ -593,6 +600,17 @@ static void end_receive(void)
     deactivate_mode(RECEIVE);
     app.receive_timeout_started_ms = 0U;
 }
+static volume_target_t transmission_volume_target(app_mode_t mode)
+{
+    switch (mode)
+    {
+        case GGS1: return VOLUME_GGS1;
+        case GGS2: return VOLUME_GGS2;
+        case APB1: return VOLUME_APB1;
+        default: return VOLUME_APB2; /* Вызывается только для ГГС/АПБ. */
+    }
+}
+
 static void start_transmission(app_mode_t mode, source_t source)
 {
     const transmission_line_config_t *line = transmission_line_for_mode(mode);
@@ -601,7 +619,7 @@ static void start_transmission(app_mode_t mode, source_t source)
 
     mux_select(line->mux_number, input);
     swich_relay(line->relay_number, transmission_relay_for_mode(mode));
-    line->start_bypass();
+    line->start_bypass(app.volume[transmission_volume_target(mode)].hardware);
     unmute_amplifiers(line->amplifier_channel);
 
     activate_mode(mode, source, true);
@@ -662,7 +680,7 @@ static void stop_announce_audio(void)
         }
     }
 
-    playback_set_i2s(app.announce_channels, false);
+    playback_set_i2s(app.announce_channels, false, aic3104_get_min_volume());
     app.announce_audio_running = false;
 }
 
@@ -681,7 +699,7 @@ static FRESULT play_announce_file(const audio_file_t *file, uint8_t channels)
     }
 
     /* Не сбрасываем кодек: соседний канал может передавать звук через bypass. */
-    playback_set_i2s(channels, true);
+    playback_set_i2s(channels, true, app.volume[VOLUME_ANNOUNCE].hardware);
 
     FRESULT result = audio_playback_start(file->pathfile);
 
@@ -697,7 +715,7 @@ static FRESULT play_announce_file(const audio_file_t *file, uint8_t channels)
             }
         }
 
-        playback_set_i2s(channels, false);
+        playback_set_i2s(channels, false, aic3104_get_min_volume());
         printf("ANNOUNCE PLAYBACK ERROR: %s (%d)\r\n", file->pathfile, (int)result);
         return result;
     }
@@ -752,7 +770,7 @@ static void set_announce_channels(uint8_t channels)
 
     if (app.announce_audio_running)
     {
-        playback_set_i2s(removed, false);
+        playback_set_i2s(removed, false, aic3104_get_min_volume());
     }
 
     /* Декодирование и воспроизведение на оставшихся каналах не прерываются. */
@@ -772,7 +790,7 @@ static bool start_phrase(source_t source, uint8_t number, app_mode_t output, uin
     tud_disconnect();
     mute_amplifier(line->amplifier_channel);
     swich_relay(line->relay_number, transmission_relay_for_mode(output));
-    line->start_i2s();
+    line->start_i2s(app.volume[number == 1U ? VOLUME_PHRASE_1 : VOLUME_PHRASE_2].hardware);
 
     FRESULT result = audio_playback_start(filename);
 
@@ -1142,10 +1160,39 @@ static void end_record(bool invalid)
     app.record_button = NO_BUTTON;
     app.record_invalid = false;
 }
-static void set_volume(volume_target_t target, uint8_t value)
+/* Только маршруты выбранного владельца. RECEIVE ещё не имеет маршрута,
+ * а громкость фразы в RECORD сохраняется для последующего воспроизведения. */
+static uint8_t volume_routes(volume_target_t target)
 {
-    app.volume[target] = value;
-    printf("VOLUME: target=%u value=%u\r\n", (unsigned)target, (unsigned)value);
+    switch (target)
+    {
+        case VOLUME_GGS1: case VOLUME_APB1: return AIC3104_VOLUME_BYPASS_1;
+        case VOLUME_GGS2: case VOLUME_APB2: return AIC3104_VOLUME_BYPASS_2;
+        case VOLUME_ANNOUNCE:
+            if (!app.announce_audio_running) return 0U;
+            return ((app.announce_channels & CHANNEL_1) ? AIC3104_VOLUME_I2S_1 : 0U) |
+                   ((app.announce_channels & CHANNEL_2) ? AIC3104_VOLUME_I2S_2 : 0U);
+        default: return 0U;
+    }
+}
+
+static void change_volume(volume_target_t target, bool increase)
+{
+    volume_state_t next = app.volume[target];
+    bool changed = increase ? aic3104_volume_up(&next.hardware) :
+                              aic3104_volume_down(&next.hardware);
+    if (!changed) return;
+
+    uint8_t routes = volume_routes(target);
+    if (routes != 0U && !aic3104_apply_volume(routes, next.hardware))
+    {
+        printf("VOLUME ERROR: target=%u\r\n", (unsigned)target);
+        return;
+    }
+    next.software = increase ? next.software + VOLUME_STEP : next.software - VOLUME_STEP;
+    app.volume[target] = next;
+    printf("VOLUME: target=%u hardware=%u software=%u\r\n",
+           (unsigned)target, (unsigned)next.hardware, (unsigned)next.software);
 }
 
 /* Периодические обработчики не содержат блокирующих ожиданий. */
@@ -1914,11 +1961,7 @@ static void process_state_event(app_event_t event, source_t source, int button)
             if (!mode_is_active(mode) || app.modes[mode].source != source ||
                 !app.modes[mode].is_holding) return;
             if (mode == RECORD && !app.record_invalid) invalidate_record();
-            int value = app.volume[target];
-            value += event == VOLUME_UP ? VOLUME_STEP : -VOLUME_STEP;
-            if (value < VOLUME_MIN) value = VOLUME_MIN;
-            if (value > VOLUME_MAX) value = VOLUME_MAX;
-            set_volume(target, (uint8_t)value);
+            change_volume(target, event == VOLUME_UP);
             break;
         }
         default:

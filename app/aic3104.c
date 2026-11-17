@@ -1,6 +1,7 @@
 #include "aic3104.h"
 #include "i2c.h"
 #include <stdbool.h>
+#include <stddef.h>
 #include "stm32f4xx_ll_bus.h"
 #include "stm32f4xx_ll_gpio.h"
 #include "stm32f4xx_ll_utils.h"
@@ -71,80 +72,74 @@ void aic3104_init_clocking(void) {
  * Настройка громкости
  * ========================================================================== */
 
-static uint8_t loud = 128 + 72;
-static uint8_t loud_max;
-static uint8_t loud_min;
+/* Аппаратное значение: код ослабления без бита включения маршрута.
+ * Сохраняем диапазон и шаг исходного драйвера: 72..0, шаг 3. */
+#define AIC3104_VOLUME_MIN 72U
+#define AIC3104_VOLUME_MAX 0U
+#define AIC3104_VOLUME_STEP 3U
 
-static void aic3104_update_active_route_volume(uint8_t reg)
+uint8_t aic3104_get_min_volume(void) { return AIC3104_VOLUME_MIN; }
+uint8_t aic3104_get_max_volume(void) { return AIC3104_VOLUME_MAX; }
+
+bool aic3104_volume_up(uint8_t *hardware)
 {
-    uint8_t value = aic3104_read_reg(reg);
-
-    // D7 = 0 означает отключённый маршрут. Изменение громкости не должно включать его снова.
-    if (value != 0xFF && (value & AIC3104_ROUTE_ENABLE) != 0)
-    {
-        aic3104_write_reg(reg, loud);
-    }
+    if (hardware == NULL || *hardware > AIC3104_VOLUME_MIN ||
+        *hardware == AIC3104_VOLUME_MAX) return false;
+    *hardware = *hardware <= AIC3104_VOLUME_STEP ? AIC3104_VOLUME_MAX :
+                (uint8_t)(*hardware - AIC3104_VOLUME_STEP);
+    return true;
 }
 
-static void aic3104_update_volume(void)
+bool aic3104_volume_down(uint8_t *hardware)
 {
-    aic3104_write_reg(0x00, AIC3104_PAGE_0);
-
-    aic3104_update_active_route_volume(AIC3104_REG_PGA_L_HPLOUT);
-    aic3104_update_active_route_volume(AIC3104_REG_DAC_L_HPLOUT);
-    aic3104_update_active_route_volume(AIC3104_REG_PGA_R_HPROUT);
-    aic3104_update_active_route_volume(AIC3104_REG_DAC_R_HPROUT);
+    if (hardware == NULL || *hardware >= AIC3104_VOLUME_MIN) return false;
+    *hardware = *hardware >= AIC3104_VOLUME_MIN - AIC3104_VOLUME_STEP ?
+                AIC3104_VOLUME_MIN : (uint8_t)(*hardware + AIC3104_VOLUME_STEP);
+    return true;
 }
 
-void aic3104_volume_down()
+static uint8_t aic3104_route_value(uint8_t hardware)
 {
-
-    uint8_t absolute = loud & 0b01111111;
-
-    absolute += 3;
-
-    if(absolute >= 72)
-    {
-        absolute = 72;
-        loud_min = 1;
-    }
-    else
-    {
-        loud_min = 0;
-        loud_max = 0;
-    }
-
-    loud = absolute | 0b10000000;
-    aic3104_update_volume();
+    if (hardware > AIC3104_VOLUME_MIN) hardware = AIC3104_VOLUME_MIN;
+    return AIC3104_ROUTE_ENABLE | hardware;
 }
 
-void aic3104_volume_up()
+/* Не включаем выключенные маршруты и не затрагиваем соседний источник.
+ * false: ошибка обмена, недопустимый аргумент или выключенный маршрут.
+ * При ошибке записи пытаемся вернуть предыдущие значения. */
+bool aic3104_apply_volume(uint8_t routes, uint8_t hardware)
 {
-
-    uint8_t absolute = loud & 0b01111111;
-
-    if(absolute <= 3 || absolute > 127)
+    static const uint8_t registers[] = {
+        AIC3104_REG_PGA_R_HPROUT, AIC3104_REG_PGA_L_HPLOUT,
+        AIC3104_REG_DAC_R_HPROUT, AIC3104_REG_DAC_L_HPLOUT
+    };
+    uint8_t previous[4] = {0};
+    uint8_t buf[2] = {0, AIC3104_PAGE_0};
+    if (hardware > AIC3104_VOLUME_MIN || routes == 0U || (routes & 0xF0U)) return false;
+    if (i2c_master_tx(AIC3104_I2C_ADDR, buf, 2, I2C_TIMEOUT_MS) != 0) return false;
+    for (unsigned i = 0; i < 4; ++i)
     {
-        absolute = 3;
-        loud_max = 1;
+        if (!(routes & (1U << i))) continue;
+        previous[i] = aic3104_read_reg(registers[i]);
+        if (previous[i] == 0xFFU || !(previous[i] & AIC3104_ROUTE_ENABLE)) return false;
     }
-    else
+    for (unsigned i = 0; i < 4; ++i)
     {
-        loud_min = 0;
-        loud_max = 0;
+        if (!(routes & (1U << i))) continue;
+        buf[0] = registers[i];
+        buf[1] = aic3104_route_value(hardware);
+        if (i2c_master_tx(AIC3104_I2C_ADDR, buf, 2, I2C_TIMEOUT_MS) != 0)
+        {
+            for (unsigned j = 0; j <= i; ++j)
+            {
+                if (!(routes & (1U << j))) continue;
+                buf[0] = registers[j]; buf[1] = previous[j];
+                (void)i2c_master_tx(AIC3104_I2C_ADDR, buf, 2, I2C_TIMEOUT_MS);
+            }
+            return false;
+        }
     }
-    absolute -= 3;
-
-    loud = absolute | 0b10000000;
-    aic3104_update_volume();
-}
-
-uint8_t is_max_volume(){
-    return loud_max;
-} 
-
-uint8_t is_min_volume(){
-    return loud_min;
+    return true;
 }
 
 
@@ -152,7 +147,7 @@ uint8_t is_min_volume(){
  * Режимы работы
  * ========================================================================== */
 
-void aic3104_line1lp_hplout_bypass(void)
+void aic3104_line1lp_hplout_bypass(uint8_t hardware)
 {
     aic3104_write_reg(0x00, AIC3104_PAGE_0);
 
@@ -160,12 +155,12 @@ void aic3104_line1lp_hplout_bypass(void)
     aic3104_write_reg(AIC3104_REG_LINE1LP_LEFT_ADC, AIC3104_INPUT_0DB_ADC_ON);
     aic3104_write_reg(AIC3104_REG_LEFT_PGA_GAIN, AIC3104_PGA_0DB_UNMUTED);
 
-    // PGA_L -> HPLOUT, громкость из loud.
-    aic3104_write_reg(AIC3104_REG_PGA_L_HPLOUT, loud);
+    // PGA_L -> HPLOUT, переданная аппаратная громкость.
+    aic3104_write_reg(AIC3104_REG_PGA_L_HPLOUT, aic3104_route_value(hardware));
     aic3104_write_reg(AIC3104_REG_HPLOUT_LEVEL, AIC3104_OUTPUT_ON_UNMUTED);
 }
 
-void aic3104_line1rp_hprout_bypass(void)
+void aic3104_line1rp_hprout_bypass(uint8_t hardware)
 {
     aic3104_write_reg(0x00, AIC3104_PAGE_0);
 
@@ -173,8 +168,8 @@ void aic3104_line1rp_hprout_bypass(void)
     aic3104_write_reg(AIC3104_REG_LINE1RP_RIGHT_ADC, AIC3104_INPUT_0DB_ADC_ON);
     aic3104_write_reg(AIC3104_REG_RIGHT_PGA_GAIN, AIC3104_PGA_0DB_UNMUTED);
 
-    // PGA_R -> HPROUT, громкость из loud.
-    aic3104_write_reg(AIC3104_REG_PGA_R_HPROUT, loud);
+    // PGA_R -> HPROUT, переданная аппаратная громкость.
+    aic3104_write_reg(AIC3104_REG_PGA_R_HPROUT, aic3104_route_value(hardware));
     aic3104_write_reg(AIC3104_REG_HPROUT_LEVEL, AIC3104_OUTPUT_ON_UNMUTED);
 }
 
@@ -222,7 +217,7 @@ static bool aic3104_update_reg_bits(uint8_t reg, uint8_t mask, uint8_t value)
     return true;
 }
 
-void aic3104_i2s_hprout(void)
+void aic3104_i2s_hprout(uint8_t hardware)
 {
     aic3104_write_reg(0, AIC3104_PAGE_0);
 
@@ -235,11 +230,11 @@ void aic3104_i2s_hprout(void)
 
     aic3104_write_reg(AIC3104_REG_DAC_OUTPUT_SELECT, 0x00);
     aic3104_write_reg(AIC3104_REG_RIGHT_DAC_VOLUME, AIC3104_DAC_UNMUTED);
-    aic3104_write_reg(AIC3104_REG_DAC_R_HPROUT, loud);
+    aic3104_write_reg(AIC3104_REG_DAC_R_HPROUT, aic3104_route_value(hardware));
     aic3104_write_reg(AIC3104_REG_HPROUT_LEVEL, AIC3104_I2S_OUTPUT_ON);
 }
 
-void aic3104_i2s_hplout(void)
+void aic3104_i2s_hplout(uint8_t hardware)
 {
     aic3104_write_reg(0, AIC3104_PAGE_0);
 
@@ -252,7 +247,7 @@ void aic3104_i2s_hplout(void)
 
     aic3104_write_reg(AIC3104_REG_DAC_OUTPUT_SELECT, 0x00);
     aic3104_write_reg(AIC3104_REG_LEFT_DAC_VOLUME, AIC3104_DAC_UNMUTED);
-    aic3104_write_reg(AIC3104_REG_DAC_L_HPLOUT, loud);
+    aic3104_write_reg(AIC3104_REG_DAC_L_HPLOUT, aic3104_route_value(hardware));
     aic3104_write_reg(AIC3104_REG_HPLOUT_LEVEL, AIC3104_I2S_OUTPUT_ON);
 }
 
@@ -345,7 +340,7 @@ uint8_t aic3104_read_reg(uint8_t reg) {
 //     aic3104_write_reg(43, 0x00);
 
 //     // R47: подключить DAC_L1 -> HPLOUT, 0 dB
-//     aic3104_write_reg(47, loud);
+//     aic3104_write_reg(47, aic3104_route_value(hardware));
 
 //     // R51: HPLOUT Power ON, Mute OFF, 0 dB
 //     aic3104_write_reg(51, 0x0D);

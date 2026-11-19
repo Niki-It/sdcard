@@ -20,6 +20,7 @@
 #define AIC3104_REG_DAC_R_HPROUT       64
 #define AIC3104_REG_HPROUT_LEVEL       65
 #define AIC3104_REG_PGA_L_RIGHT_LOP    88
+#define AIC3104_REG_DAC_R_RIGHT_LOP    92
 #define AIC3104_REG_RIGHT_LOP_LEVEL    93
 #define AIC3104_REG_DAC_DATA_PATH      7
 #define AIC3104_REG_DAC_POWER          37
@@ -284,6 +285,59 @@ void aic3104_i2s_hplout(uint8_t hardware)
     aic3104_write_reg(AIC3104_REG_LEFT_DAC_VOLUME, AIC3104_DAC_UNMUTED);
     aic3104_write_reg(AIC3104_REG_DAC_L_HPLOUT, aic3104_route_value(hardware));
     aic3104_write_reg(AIC3104_REG_HPLOUT_LEVEL, AIC3104_I2S_OUTPUT_ON);
+}
+
+/* Фразы на OPER: I2S -> DAC_R (моносумма) -> RIGHT_LOP/M.
+ * Общие регистры R7/R37 изменяются только в части правого DAC. */
+bool aic3104_i2s_right_lop(uint8_t hardware)
+{
+    if (hardware > AIC3104_VOLUME_MIN) return false;
+
+    uint8_t page[2] = {0, AIC3104_PAGE_0};
+
+    if (i2c_master_tx(AIC3104_I2C_ADDR, page, 2, I2C_TIMEOUT_MS) != 0) return false;
+
+    uint8_t data_path = aic3104_read_reg(AIC3104_REG_DAC_DATA_PATH);
+    uint8_t dac_power = aic3104_read_reg(AIC3104_REG_DAC_POWER);
+
+    if (data_path == 0xFFU || dac_power == 0xFFU) return false;
+
+    const uint8_t setup[][2] =
+    {
+        {AIC3104_REG_RIGHT_LOP_LEVEL, 0x00},
+        {AIC3104_REG_DAC_DATA_PATH, (uint8_t)((data_path & ~AIC3104_RIGHT_DAC_PATH_MASK) | AIC3104_RIGHT_DAC_MONO_MIX)},
+        {AIC3104_REG_DAC_POWER, (uint8_t)(dac_power | AIC3104_RIGHT_DAC_POWER)},
+        {AIC3104_REG_DAC_OUTPUT_SELECT, 0x00},
+        {AIC3104_REG_RIGHT_DAC_VOLUME, AIC3104_DAC_UNMUTED},
+        {AIC3104_REG_DAC_R_RIGHT_LOP, aic3104_route_value(hardware)},
+        {AIC3104_REG_RIGHT_LOP_LEVEL, AIC3104_OUTPUT_ON_UNMUTED}
+    };
+
+    for (unsigned i = 0; i < sizeof(setup) / sizeof(setup[0]); ++i)
+    {
+        uint8_t buf[2] = {setup[i][0], setup[i][1]};
+
+        if (i2c_master_tx(AIC3104_I2C_ADDR, buf, 2, I2C_TIMEOUT_MS) != 0)
+        {
+            aic3104_i2s_right_lop_stop();
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void aic3104_i2s_right_lop_stop(void)
+{
+    aic3104_write_reg(0, AIC3104_PAGE_0);
+    aic3104_write_reg(AIC3104_REG_RIGHT_LOP_LEVEL, 0x00);
+    aic3104_write_reg(AIC3104_REG_DAC_R_RIGHT_LOP, 0x00);
+    aic3104_write_reg(AIC3104_REG_RIGHT_DAC_VOLUME, AIC3104_DAC_MUTED);
+
+    if (!aic3104_update_reg_bits(AIC3104_REG_DAC_POWER,
+                                 AIC3104_RIGHT_DAC_POWER, 0x00)) return;
+
+    aic3104_update_reg_bits(AIC3104_REG_DAC_DATA_PATH, AIC3104_RIGHT_DAC_PATH_MASK, 0x00);
 }
 
 void aic3104_i2s_hprout_stop(void)

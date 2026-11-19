@@ -41,8 +41,10 @@ void aic3104_line1lp_right_lop_bypass_stop(void);
 void aic3104_line1lp_i2s(void);
 void aic3104_i2s_hprout(uint8_t hardware);
 void aic3104_i2s_hplout(uint8_t hardware);
+bool aic3104_i2s_right_lop(uint8_t hardware);
 void aic3104_i2s_hprout_stop(void);
 void aic3104_i2s_hplout_stop(void);
+void aic3104_i2s_right_lop_stop(void);
 
 /* Битовая маска конкретных маршрутов (канал 1 = HPROUT). */
 #define AIC3104_VOLUME_BYPASS_1 0x01U

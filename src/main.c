@@ -310,7 +310,6 @@ int main(void)
     {
         mute_amplifier(transmission_lines[line].amplifier_channel);
     }
-    mute_oper();
 
     while (1)
     {
@@ -793,16 +792,37 @@ static bool start_phrase(source_t source, uint8_t number, app_mode_t output, uin
 {
     if (app.record_storage_locked) return false;
 
+    bool oper = channel == CHANNEL_PRM;
     const transmission_line_config_t *line = transmission_line_for_mode(output);
 
-    if (line == NULL || line->channel_mask != channel) return false;
+    if (oper)
+    {
+        if (output != RECEIVE) return false;
+    }
+    else if (line == NULL || line->channel_mask != channel) return false;
 
     const char *filename = number == 1U ? PHRASE_1_FILENAME : PHRASE_2_FILENAME;
+    uint8_t hardware = app.volume[number == 1U ? VOLUME_PHRASE_1 : VOLUME_PHRASE_2].hardware;
 
     tud_disconnect();
-    mute_amplifier(line->amplifier_channel);
-    swich_relay(line->relay_number, transmission_relay_for_mode(output));
-    line->start_i2s(app.volume[number == 1U ? VOLUME_PHRASE_1 : VOLUME_PHRASE_2].hardware);
+
+    if (oper)
+    {
+        mute_oper();
+
+        if (!aic3104_i2s_right_lop(hardware))
+        {
+            printf("PHRASE OPER: codec setup failed\r\n");
+            playback_restore_usb();
+            return false;
+        }
+    }
+    else
+    {
+        mute_amplifier(line->amplifier_channel);
+        swich_relay(line->relay_number, transmission_relay_for_mode(output));
+        line->start_i2s(hardware);
+    }
 
     FRESULT result = audio_playback_start(filename);
 
@@ -810,28 +830,35 @@ static bool start_phrase(source_t source, uint8_t number, app_mode_t output, uin
     {
         printf("PHRASE START ERROR: %s (%d)\r\n", filename, (int)result);
         if (audio_playback_is_file_open()) audio_playback_stop();
-        line->stop_i2s();
+
+        if (oper) aic3104_i2s_right_lop_stop();
+        else line->stop_i2s();
+
         playback_restore_usb();
         return false;
     }
 
-    unmute_amplifiers(line->amplifier_channel);
+    if (oper) unmute_oper();
+    else unmute_amplifiers(line->amplifier_channel);
+
     app.phrase_number = number;
     app.phrase_output = (int)output;
     app.phrase_channel = channel;
     activate_mode(PHRASE, source, false);
-    printf("PHRASE START: %s, output=%s\r\n", filename, mode_names[output]);
+    printf("PHRASE START: %s, output=%s\r\n", filename, oper ? "OPER" : mode_names[output]);
     return true;
 }
 static void end_phrase(void)
 {
     if (app.phrase_output != NO_OUTPUT)
     {
+        bool oper = app.phrase_channel == CHANNEL_PRM;
         const transmission_line_config_t *line = transmission_line_for_mode((app_mode_t)app.phrase_output);
 
-        if (line != NULL)
+        if (oper || line != NULL)
         {
-            mute_amplifier(line->amplifier_channel);
+            if (oper) mute_oper();
+            else mute_amplifier(line->amplifier_channel);
 
             FRESULT result = audio_playback_stop();
 
@@ -840,7 +867,9 @@ static void end_phrase(void)
                 printf("PHRASE STOP ERROR: %d\r\n", (int)result);
             }
 
-            line->stop_i2s();
+            if (oper) aic3104_i2s_right_lop_stop();
+            else line->stop_i2s();
+
             playback_restore_usb();
         }
     }
@@ -1905,12 +1934,6 @@ static void process_state_event(app_event_t event, source_t source, int button)
             if ((channel == CHANNEL_PRM && mode_is_active(RECEIVE)) ||
                 (channel == CHANNEL_1 && (mode_is_active(GGS1) || mode_is_active(APB1))) ||
                 (channel == CHANNEL_2 && (mode_is_active(GGS2) || mode_is_active(APB2)))) return;
-
-            if (channel == CHANNEL_PRM)
-            {
-                printf("PHRASE %u: OPER playback not implemented\r\n", (unsigned)number);
-                return;
-            }
 
             if (app.record_storage_locked) return;
 

@@ -302,7 +302,6 @@ int main(void)
         app.volume[i].hardware = aic3104_get_min_volume();
         app.volume[i].software = 0U;
     }
-    printf("%d", aic3104_read_reg(101));
     i2s_dma_init();
     debounce_init(debounced_pins, DEBOUNCE_INPUT_COUNT, DEBOUNCE_PERIOD_MS);
 

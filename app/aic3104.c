@@ -19,6 +19,8 @@
 #define AIC3104_REG_PGA_R_HPROUT       63
 #define AIC3104_REG_DAC_R_HPROUT       64
 #define AIC3104_REG_HPROUT_LEVEL       65
+#define AIC3104_REG_PGA_L_RIGHT_LOP    88
+#define AIC3104_REG_RIGHT_LOP_LEVEL    93
 #define AIC3104_REG_DAC_DATA_PATH      7
 #define AIC3104_REG_DAC_POWER          37
 #define AIC3104_REG_DAC_OUTPUT_SELECT  41
@@ -111,19 +113,20 @@ bool aic3104_apply_volume(uint8_t routes, uint8_t hardware)
 {
     static const uint8_t registers[] = {
         AIC3104_REG_PGA_R_HPROUT, AIC3104_REG_PGA_L_HPLOUT,
-        AIC3104_REG_DAC_R_HPROUT, AIC3104_REG_DAC_L_HPLOUT
+        AIC3104_REG_DAC_R_HPROUT, AIC3104_REG_DAC_L_HPLOUT,
+        AIC3104_REG_PGA_L_RIGHT_LOP
     };
-    uint8_t previous[4] = {0};
+    uint8_t previous[5] = {0};
     uint8_t buf[2] = {0, AIC3104_PAGE_0};
-    if (hardware > AIC3104_VOLUME_MIN || routes == 0U || (routes & 0xF0U)) return false;
+    if (hardware > AIC3104_VOLUME_MIN || routes == 0U || (routes & 0xE0U)) return false;
     if (i2c_master_tx(AIC3104_I2C_ADDR, buf, 2, I2C_TIMEOUT_MS) != 0) return false;
-    for (unsigned i = 0; i < 4; ++i)
+    for (unsigned i = 0; i < 5; ++i)
     {
         if (!(routes & (1U << i))) continue;
         previous[i] = aic3104_read_reg(registers[i]);
         if (previous[i] == 0xFFU || !(previous[i] & AIC3104_ROUTE_ENABLE)) return false;
     }
-    for (unsigned i = 0; i < 4; ++i)
+    for (unsigned i = 0; i < 5; ++i)
     {
         if (!(routes & (1U << i))) continue;
         buf[0] = registers[i];
@@ -189,6 +192,38 @@ void aic3104_line1rp_hprout_bypass_stop(void)
     // Отключить только PGA_R -> HPROUT и сам HPROUT.
     aic3104_write_reg(AIC3104_REG_PGA_R_HPROUT, 0x00);
     aic3104_write_reg(AIC3104_REG_HPROUT_LEVEL, AIC3104_OUTPUT_OFF);
+}
+
+/* RECEIVE uses PGA_L -> RIGHT_LOP/M; the headphone/DAC paths stay intact.
+ * R93 bit 2 is reserved, so use 0x00 for OFF (not HP's 0x04). */
+bool aic3104_line1lp_right_lop_bypass(uint8_t hardware)
+{
+    if (hardware > AIC3104_VOLUME_MIN) return false;
+    const uint8_t setup[][2] = {
+        {0, AIC3104_PAGE_0},
+        {AIC3104_REG_RIGHT_LOP_LEVEL, 0x00},
+        {AIC3104_REG_LINE1LP_LEFT_ADC, AIC3104_INPUT_0DB_ADC_ON},
+        {AIC3104_REG_LEFT_PGA_GAIN, AIC3104_PGA_0DB_UNMUTED},
+        {AIC3104_REG_PGA_L_RIGHT_LOP, aic3104_route_value(hardware)},
+        {AIC3104_REG_RIGHT_LOP_LEVEL, AIC3104_OUTPUT_ON_UNMUTED}
+    };
+    for (unsigned i = 0; i < sizeof(setup) / sizeof(setup[0]); ++i)
+    {
+        uint8_t buf[2] = {setup[i][0], setup[i][1]};
+        if (i2c_master_tx(AIC3104_I2C_ADDR, buf, 2, I2C_TIMEOUT_MS) != 0)
+        {
+            aic3104_line1lp_right_lop_bypass_stop();
+            return false;
+        }
+    }
+    return true;
+}
+
+void aic3104_line1lp_right_lop_bypass_stop(void)
+{
+    aic3104_write_reg(0, AIC3104_PAGE_0);
+    aic3104_write_reg(AIC3104_REG_RIGHT_LOP_LEVEL, 0x00);
+    aic3104_write_reg(AIC3104_REG_PGA_L_RIGHT_LOP, 0x00);
 }
 
 void aic3104_line1lp_i2s(void)

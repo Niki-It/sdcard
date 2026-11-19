@@ -49,3 +49,12 @@ void unmute_amplifiers(uint8_t channel)
     }
 
 }
+void mute_oper(void)
+{
+    LL_GPIO_SetOutputPin(MUTE_OPER_PORT, MUTE_OPER_PIN);
+}
+
+void unmute_oper(void)
+{
+    LL_GPIO_ResetOutputPin(MUTE_OPER_PORT, MUTE_OPER_PIN);
+}

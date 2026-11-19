@@ -35,6 +35,9 @@ void aic3104_line1lp_hplout_bypass(uint8_t hardware);
 void aic3104_line1rp_hprout_bypass(uint8_t hardware);
 void aic3104_line1lp_hplout_bypass_stop(void);
 void aic3104_line1rp_hprout_bypass_stop(void);
+/* false on I2C error: caller must keep OPER muted. */
+bool aic3104_line1lp_right_lop_bypass(uint8_t hardware);
+void aic3104_line1lp_right_lop_bypass_stop(void);
 void aic3104_line1lp_i2s(void);
 void aic3104_i2s_hprout(uint8_t hardware);
 void aic3104_i2s_hplout(uint8_t hardware);
@@ -46,6 +49,7 @@ void aic3104_i2s_hplout_stop(void);
 #define AIC3104_VOLUME_BYPASS_2 0x02U
 #define AIC3104_VOLUME_I2S_1    0x04U
 #define AIC3104_VOLUME_I2S_2    0x08U
+#define AIC3104_VOLUME_RECEIVE  0x10U
 
 /* Значение ослабления без D7: минимум громкости = 72, максимум = 0.
  * Шаговые функции только вычисляют новое значение; I2C не используют.

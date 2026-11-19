@@ -592,11 +592,22 @@ static void end_auto_receive(void)
 }
 static void start_receive(source_t source, bool is_holding)
 {
+    mute_oper();
+    /* Third physical input: X2 (X0/X1 are the two remotes). */
+    switch_mux(SIG_TRK);
+    if (!aic3104_line1lp_right_lop_bypass(app.volume[VOLUME_RECEIVE].hardware))
+    {
+        printf("RECEIVE: codec setup failed\r\n");
+        return;
+    }
     app.receive_timeout_started_ms = uptime_ms;
     activate_mode(RECEIVE, source, is_holding);
+    unmute_oper();
 }
 static void end_receive(void)
 {
+    mute_oper();
+    aic3104_line1lp_right_lop_bypass_stop();
     deactivate_mode(RECEIVE);
     app.receive_timeout_started_ms = 0U;
 }
@@ -1160,12 +1171,14 @@ static void end_record(bool invalid)
     app.record_button = NO_BUTTON;
     app.record_invalid = false;
 }
-/* Только маршруты выбранного владельца. RECEIVE ещё не имеет маршрута,
- * а громкость фразы в RECORD сохраняется для последующего воспроизведения. */
+/* Только маршруты выбранного владельца.
+ * Громкость фразы в RECORD сохраняется для последующего воспроизведения. */
 static uint8_t volume_routes(volume_target_t target)
 {
     switch (target)
     {
+        case VOLUME_RECEIVE:
+            return mode_is_active(RECEIVE) ? AIC3104_VOLUME_RECEIVE : 0U;
         case VOLUME_GGS1: case VOLUME_APB1: return AIC3104_VOLUME_BYPASS_1;
         case VOLUME_GGS2: case VOLUME_APB2: return AIC3104_VOLUME_BYPASS_2;
         case VOLUME_ANNOUNCE:

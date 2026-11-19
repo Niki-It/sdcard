@@ -19,6 +19,9 @@
 #define MUTE_AMP1_PIN   LL_GPIO_PIN_8
 #define MUTE_AMP2_PIN   LL_GPIO_PIN_9
 
+#define MUTE_OPER_PORT  GPIOA
+#define MUTE_OPER_PIN   LL_GPIO_PIN_7
+
 void GPIO_Init(void);
 
 #endif

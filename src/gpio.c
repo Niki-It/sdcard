@@ -17,6 +17,16 @@ void I2C2_GPIO_Init(void)
 
 void GPIO_Init(void)
 {
+    /* PA7 -> active-low /EN: preload HIGH before enabling output. */
+    LL_GPIO_SetOutputPin(MUTE_OPER_PORT, MUTE_OPER_PIN);
+    LL_GPIO_InitTypeDef gpio_opr = {0};
+    gpio_opr.Pin = MUTE_OPER_PIN;
+    gpio_opr.Mode = LL_GPIO_MODE_OUTPUT;
+    gpio_opr.Speed = LL_GPIO_SPEED_FREQ_LOW;
+    gpio_opr.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+    gpio_opr.Pull = LL_GPIO_PULL_UP;
+    LL_GPIO_Init(MUTE_OPER_PORT, &gpio_opr);
+
     // === 2. Настройка пина RESET кодека (PC7) ===
     LL_GPIO_InitTypeDef gpio_rst = {0};
     gpio_rst.Pin = AIC3104_RESET_PIN;
@@ -164,14 +174,6 @@ void GPIO_Init(void)
     gpio_trk.Speed = LL_GPIO_SPEED_FREQ_LOW;
     gpio_trk.Pull = LL_GPIO_PULL_NO; // Аппаратная подтяжка на плате
     LL_GPIO_Init(GPIOC, &gpio_trk);
-
-    LL_GPIO_InitTypeDef gpio_opr = {0};
-    gpio_opr.Pin        = LL_GPIO_PIN_7;
-    gpio_opr.Mode       = LL_GPIO_MODE_OUTPUT;
-    gpio_opr.Speed      = LL_GPIO_SPEED_FREQ_LOW;
-    gpio_opr.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-    gpio_opr.Pull       = LL_GPIO_PULL_NO;
-    LL_GPIO_Init(GPIOB, &gpio_opr);
 
     I2C2_GPIO_Init();
     led_controller_gpio_init();

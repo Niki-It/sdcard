@@ -310,6 +310,7 @@ int main(void)
     {
         mute_amplifier(transmission_lines[line].amplifier_channel);
     }
+    mute_oper();
 
     while (1)
     {
